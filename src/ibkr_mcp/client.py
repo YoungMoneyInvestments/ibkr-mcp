@@ -704,10 +704,10 @@ class IBKRClient:
             raise MarketDataError(f"Positions error: {e}")
 
     # ========================================================================
-    # Market Data Methods
+    # Market Data Methods (Internal - use Contract objects)
     # ========================================================================
 
-    async def get_realtime_price(
+    async def _get_realtime_price_internal(
         self,
         contract: Contract,
         snapshot: bool = True
@@ -788,7 +788,7 @@ class IBKRClient:
             logger.error(f"Failed to get market data: {e}")
             raise MarketDataError(f"Market data error: {e}")
 
-    async def get_historical_data(
+    async def _get_historical_data_internal(
         self,
         contract: Contract,
         duration: str = "1 D",
@@ -873,10 +873,10 @@ class IBKRClient:
             raise MarketDataError(f"Historical data error: {e}")
 
     # ========================================================================
-    # Order Methods
+    # Order Methods (Internal - use Contract/Order objects)
     # ========================================================================
 
-    async def place_order(self, contract: Contract, order: Order) -> Trade:
+    async def _place_order_internal(self, contract: Contract, order: Order) -> Trade:
         """
         Place an order.
 
@@ -977,3 +977,350 @@ class IBKRClient:
         except Exception as e:
             logger.error(f"Failed to get open orders: {e}")
             raise OrderError(f"Open orders error: {e}")
+
+    # ========================================================================
+    # Wrapper Methods for Tool Functions
+    # ========================================================================
+    # These methods provide simple signatures that match server.py expectations
+    # and delegate to the tool functions in tools/*.py
+
+    # --- Signature-Fixed Wrappers ---
+
+    async def get_realtime_price(
+        self,
+        symbol: str,
+        sec_type: str = "STK",
+        exchange: str = "SMART"
+    ) -> Dict[str, Any]:
+        """
+        Get real-time price (wrapper that delegates to market_data tool).
+
+        Args:
+            symbol: Trading symbol
+            sec_type: Security type (STK, OPT, FUT, etc.)
+            exchange: Exchange (default: SMART)
+
+        Returns:
+            Dict with price data
+        """
+        from .tools import market_data
+        return await market_data.get_realtime_price(self, symbol, sec_type, exchange)
+
+    async def get_historical_data(
+        self,
+        symbol: str,
+        duration: str = "1 D",
+        bar_size: str = "1 hour",
+        sec_type: str = "STK",
+        exchange: str = "SMART",
+        page: int = 1,
+        page_size: int = 100
+    ) -> Dict[str, Any]:
+        """
+        Get historical data with pagination (wrapper that delegates to market_data tool).
+
+        Args:
+            symbol: Trading symbol
+            duration: Duration string (e.g., "1 D", "1 W")
+            bar_size: Bar size (e.g., "1 min", "1 hour")
+            sec_type: Security type
+            exchange: Exchange
+            page: Page number for pagination
+            page_size: Number of bars per page
+
+        Returns:
+            Dict with historical data
+        """
+        from .tools import market_data
+        return await market_data.get_historical_data(
+            self, symbol, duration, bar_size, sec_type, exchange, page, page_size
+        )
+
+    async def place_order(
+        self,
+        symbol: str,
+        action: str,
+        quantity: int,
+        order_type: str = "MKT",
+        limit_price: Optional[float] = None,
+        stop_price: Optional[float] = None,
+        sec_type: str = "STK",
+        exchange: str = "SMART"
+    ) -> Dict[str, Any]:
+        """
+        Place an order (wrapper that delegates to orders tool).
+
+        Args:
+            symbol: Trading symbol
+            action: Order action (BUY/SELL)
+            quantity: Order quantity
+            order_type: Order type (MKT, LMT, STP, etc.)
+            limit_price: Limit price (for LMT orders)
+            stop_price: Stop price (for STP orders)
+            sec_type: Security type
+            exchange: Exchange
+
+        Returns:
+            Dict with order result
+        """
+        from .tools import orders
+        return await orders.place_order(
+            self, symbol, action, quantity, order_type,
+            limit_price, stop_price, sec_type, exchange
+        )
+
+    # --- Market Data Methods ---
+
+    async def search_symbols(self, pattern: str) -> Dict[str, Any]:
+        """Search for tradable instruments matching a pattern."""
+        from .tools import market_data
+        return await market_data.search_symbols(self, pattern)
+
+    async def get_news(
+        self,
+        symbol: str,
+        sec_type: str = "STK",
+        exchange: str = "SMART"
+    ) -> Dict[str, Any]:
+        """Get news for a symbol."""
+        from .tools import market_data
+        return await market_data.get_news(self, symbol, sec_type, exchange)
+
+    async def get_order_book(
+        self,
+        symbol: str,
+        depth: int = 5
+    ) -> Dict[str, Any]:
+        """Get order book (Level 2) data."""
+        from .tools import market_data
+        return await market_data.get_order_book(self, symbol, depth)
+
+    async def calculate_slippage(self, order_id: int) -> Dict[str, Any]:
+        """Calculate slippage for an executed order."""
+        from .tools import market_data
+        return await market_data.calculate_slippage(self, order_id)
+
+    # --- Account Methods ---
+
+    async def analyze_portfolio_allocation(self) -> Dict[str, Any]:
+        """Analyze portfolio allocation and diversification."""
+        from .tools import account
+        return await account.analyze_portfolio_allocation(self)
+
+    async def calculate_rebalancing_orders(
+        self,
+        target_allocation: Dict[str, float],
+        tolerance: float = 0.05
+    ) -> Dict[str, Any]:
+        """Calculate orders needed to rebalance portfolio."""
+        from .tools import account
+        return await account.calculate_rebalancing_orders(
+            self, target_allocation, tolerance
+        )
+
+    async def execute_rebalancing(
+        self,
+        rebalancing_orders: List[Dict[str, Any]],
+        dry_run: bool = True
+    ) -> Dict[str, Any]:
+        """Execute portfolio rebalancing orders."""
+        from .tools import account
+        return await account.execute_rebalancing(self, rebalancing_orders, dry_run)
+
+    # --- Advanced Order Methods ---
+
+    async def place_bracket_order(
+        self,
+        symbol: str,
+        action: str,
+        quantity: int,
+        entry_price: float,
+        profit_target: float,
+        stop_loss: float,
+        sec_type: str = "STK",
+        exchange: str = "SMART"
+    ) -> Dict[str, Any]:
+        """Place a bracket order (entry + take profit + stop loss)."""
+        from .tools import orders_advanced
+        return await orders_advanced.place_bracket_order(
+            self, symbol, action, quantity, entry_price,
+            profit_target, stop_loss, sec_type, exchange
+        )
+
+    async def place_trailing_stop(
+        self,
+        symbol: str,
+        action: str,
+        quantity: int,
+        trail_amount: float,
+        trail_percent: Optional[float] = None,
+        sec_type: str = "STK",
+        exchange: str = "SMART"
+    ) -> Dict[str, Any]:
+        """Place a trailing stop order."""
+        from .tools import orders_advanced
+        return await orders_advanced.place_trailing_stop(
+            self, symbol, action, quantity, trail_amount,
+            trail_percent, sec_type, exchange
+        )
+
+    async def place_one_cancels_all(
+        self,
+        symbol: str,
+        action: str,
+        quantity: int,
+        order_configs: List[Dict[str, Any]],
+        sec_type: str = "STK",
+        exchange: str = "SMART"
+    ) -> Dict[str, Any]:
+        """Place a one-cancels-all (OCA) order group."""
+        from .tools import orders_advanced
+        return await orders_advanced.place_one_cancels_all(
+            self, symbol, action, quantity, order_configs, sec_type, exchange
+        )
+
+    async def place_algo_order(
+        self,
+        symbol: str,
+        action: str,
+        quantity: int,
+        algo_strategy: str,
+        algo_params: Dict[str, Any],
+        sec_type: str = "STK",
+        exchange: str = "SMART"
+    ) -> Dict[str, Any]:
+        """Place an algorithmic order (TWAP, VWAP, etc.)."""
+        from .tools import orders_advanced
+        return await orders_advanced.place_algo_order(
+            self, symbol, action, quantity, algo_strategy,
+            algo_params, sec_type, exchange
+        )
+
+    # --- Options Methods ---
+
+    async def get_option_chain(
+        self,
+        symbol: str,
+        exchange: str = "SMART"
+    ) -> Dict[str, Any]:
+        """Get option chain for a symbol."""
+        from .tools import options
+        return await options.get_option_chain(self, symbol, exchange)
+
+    async def analyze_option_spread(
+        self,
+        symbol: str,
+        strategy: str,
+        expiry: str,
+        strikes: List[float],
+        exchange: str = "SMART"
+    ) -> Dict[str, Any]:
+        """Analyze option spread strategies."""
+        from .tools import options
+        return await options.analyze_option_spread(
+            self, symbol, strategy, expiry, strikes, exchange
+        )
+
+    # --- Futures Methods ---
+
+    async def get_futures_chain(
+        self,
+        underlying: str,
+        exchange: str = "CME"
+    ) -> Dict[str, Any]:
+        """Get futures chain for an underlying."""
+        from .tools import futures
+        return await futures.get_futures_chain(self, underlying, exchange)
+
+    async def detect_rollover_needed(
+        self,
+        symbol: str,
+        exchange: str = "CME",
+        days_before: int = 5
+    ) -> Dict[str, Any]:
+        """Detect if futures contract rollover is needed."""
+        from .tools import futures
+        return await futures.detect_rollover_needed(
+            self, symbol, exchange, days_before
+        )
+
+    async def get_contract_by_conid(self, con_id: int) -> Dict[str, Any]:
+        """Get contract details by contract ID."""
+        from .tools import futures
+        return await futures.get_contract_by_conid(self, con_id)
+
+    # --- Scanner Methods ---
+
+    async def scan_market(
+        self,
+        scan_code: str,
+        location: str = "STK.US.MAJOR",
+        instrument: str = "STK",
+        num_rows: int = 50
+    ) -> Dict[str, Any]:
+        """Run a market scanner."""
+        from .tools import scanners
+        return await scanners.scan_market(
+            self, scan_code, location, instrument, num_rows
+        )
+
+    async def create_custom_scanner(
+        self,
+        criteria: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Create a custom market scanner."""
+        from .tools import scanners
+        return await scanners.create_custom_scanner(self, criteria)
+
+    async def scan_options_volume(
+        self,
+        underlying: str,
+        min_volume: int = 1000,
+        exchange: str = "SMART"
+    ) -> Dict[str, Any]:
+        """Scan for high-volume options."""
+        from .tools import scanners
+        return await scanners.scan_options_volume(
+            self, underlying, min_volume, exchange
+        )
+
+    # --- Risk Management Methods ---
+
+    async def calculate_position_size(
+        self,
+        symbol: str,
+        risk_amount: float,
+        stop_loss_price: float,
+        entry_price: float,
+        sec_type: str = "STK",
+        exchange: str = "SMART"
+    ) -> Dict[str, Any]:
+        """Calculate position size based on risk parameters."""
+        from .tools import risk
+        return await risk.calculate_position_size(
+            self, symbol, risk_amount, stop_loss_price,
+            entry_price, sec_type, exchange
+        )
+
+    async def check_risk_limits(self) -> Dict[str, Any]:
+        """Check if portfolio is within risk limits."""
+        from .tools import risk
+        return await risk.check_risk_limits(self)
+
+    async def calculate_var(
+        self,
+        confidence_level: float = 0.95,
+        time_horizon: int = 1
+    ) -> Dict[str, Any]:
+        """Calculate Value at Risk (VaR) for portfolio."""
+        from .tools import risk
+        return await risk.calculate_var(self, confidence_level, time_horizon)
+
+    async def set_stop_loss_orders(
+        self,
+        stop_loss_pct: float = 0.02,
+        trailing: bool = False
+    ) -> Dict[str, Any]:
+        """Set stop loss orders for all positions."""
+        from .tools import risk
+        return await risk.set_stop_loss_orders(self, stop_loss_pct, trailing)

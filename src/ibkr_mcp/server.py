@@ -393,6 +393,194 @@ class IBKRMCPServer:
                 return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
 
         # =====================================================================
+        # Algorithmic Order Tools (Convenience Wrappers)
+        # =====================================================================
+
+        @self.mcp.tool()
+        async def place_twap_order(
+            symbol: str,
+            action: str,
+            quantity: int,
+            start_time: str = "",
+            end_time: str = "",
+            strategy_type: str = "Marketable",
+            sec_type: str = "STK",
+            exchange: str = "SMART",
+        ) -> Dict[str, Any]:
+            """Place a TWAP (Time-Weighted Average Price) algorithmic order."""
+            if self.config.ibkr.readonly:
+                return {"success": False, "error": "Read-only mode - trading disabled"}
+
+            try:
+                from .tools.orders_advanced import create_twap_params, place_algo_order
+
+                # Create TWAP parameters
+                algo_params = create_twap_params(
+                    strategy_type=strategy_type,
+                    start_time=start_time,
+                    end_time=end_time,
+                )
+
+                # Place the algo order
+                result = await place_algo_order(
+                    client=self.client,
+                    symbol=symbol,
+                    action=action,
+                    quantity=quantity,
+                    algo_strategy="Twap",
+                    algo_params=algo_params,
+                    sec_type=sec_type,
+                    exchange=exchange,
+                )
+
+                return {
+                    "success": True,
+                    "data": result,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            except Exception as e:
+                logger.error(f"TWAP order error: {e}")
+                return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
+
+        @self.mcp.tool()
+        async def place_vwap_order(
+            symbol: str,
+            action: str,
+            quantity: int,
+            max_pct_vol: float = 0.1,
+            start_time: str = "",
+            end_time: str = "",
+            no_take_liq: bool = False,
+            sec_type: str = "STK",
+            exchange: str = "SMART",
+        ) -> Dict[str, Any]:
+            """Place a VWAP (Volume-Weighted Average Price) algorithmic order."""
+            if self.config.ibkr.readonly:
+                return {"success": False, "error": "Read-only mode - trading disabled"}
+
+            try:
+                from .tools.orders_advanced import create_vwap_params, place_algo_order
+
+                # Create VWAP parameters
+                algo_params = create_vwap_params(
+                    max_pct_vol=max_pct_vol,
+                    start_time=start_time,
+                    end_time=end_time,
+                    no_take_liq=no_take_liq,
+                )
+
+                # Place the algo order
+                result = await place_algo_order(
+                    client=self.client,
+                    symbol=symbol,
+                    action=action,
+                    quantity=quantity,
+                    algo_strategy="Vwap",
+                    algo_params=algo_params,
+                    sec_type=sec_type,
+                    exchange=exchange,
+                )
+
+                return {
+                    "success": True,
+                    "data": result,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            except Exception as e:
+                logger.error(f"VWAP order error: {e}")
+                return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
+
+        @self.mcp.tool()
+        async def place_arrival_price_order(
+            symbol: str,
+            action: str,
+            quantity: int,
+            max_pct_vol: float = 0.1,
+            risk_aversion: str = "Neutral",
+            start_time: str = "",
+            end_time: str = "",
+            force_completion: bool = False,
+            sec_type: str = "STK",
+            exchange: str = "SMART",
+        ) -> Dict[str, Any]:
+            """Place an Arrival Price algorithmic order."""
+            if self.config.ibkr.readonly:
+                return {"success": False, "error": "Read-only mode - trading disabled"}
+
+            try:
+                from .tools.orders_advanced import create_arrival_price_params, place_algo_order
+
+                # Create Arrival Price parameters
+                algo_params = create_arrival_price_params(
+                    max_pct_vol=max_pct_vol,
+                    risk_aversion=risk_aversion,
+                    start_time=start_time,
+                    end_time=end_time,
+                    force_completion=force_completion,
+                )
+
+                # Place the algo order
+                result = await place_algo_order(
+                    client=self.client,
+                    symbol=symbol,
+                    action=action,
+                    quantity=quantity,
+                    algo_strategy="ArrivalPx",
+                    algo_params=algo_params,
+                    sec_type=sec_type,
+                    exchange=exchange,
+                )
+
+                return {
+                    "success": True,
+                    "data": result,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            except Exception as e:
+                logger.error(f"Arrival Price order error: {e}")
+                return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
+
+        @self.mcp.tool()
+        async def place_adaptive_order(
+            symbol: str,
+            action: str,
+            quantity: int,
+            priority: str = "Normal",
+            sec_type: str = "STK",
+            exchange: str = "SMART",
+        ) -> Dict[str, Any]:
+            """Place an IB Adaptive algorithmic order."""
+            if self.config.ibkr.readonly:
+                return {"success": False, "error": "Read-only mode - trading disabled"}
+
+            try:
+                from .tools.orders_advanced import create_adaptive_params, place_algo_order
+
+                # Create Adaptive parameters
+                algo_params = create_adaptive_params(priority=priority)
+
+                # Place the algo order
+                result = await place_algo_order(
+                    client=self.client,
+                    symbol=symbol,
+                    action=action,
+                    quantity=quantity,
+                    algo_strategy="Adaptive",
+                    algo_params=algo_params,
+                    sec_type=sec_type,
+                    exchange=exchange,
+                )
+
+                return {
+                    "success": True,
+                    "data": result,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            except Exception as e:
+                logger.error(f"Adaptive order error: {e}")
+                return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
+
+        # =====================================================================
         # Risk Management Tools
         # =====================================================================
 
@@ -451,6 +639,290 @@ class IBKRMCPServer:
                 }
             except Exception as e:
                 logger.error(f"VaR calculation error: {e}")
+                return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
+
+        # =====================================================================
+        # Additional Account Tools
+        # =====================================================================
+
+        @self.mcp.tool()
+        async def calculate_rebalancing_orders(
+            target_allocations: Dict[str, float],
+            rebalance_threshold: float = 0.05,
+            use_cash: bool = True,
+        ) -> Dict[str, Any]:
+            """Calculate trades needed to rebalance portfolio to target allocations."""
+            try:
+                result = await self.client.calculate_rebalancing_orders(
+                    target_allocations=target_allocations,
+                    rebalance_threshold=rebalance_threshold,
+                    use_cash=use_cash,
+                )
+                return {
+                    "success": True,
+                    "data": result,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            except Exception as e:
+                logger.error(f"Rebalancing calculation error: {e}")
+                return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
+
+        @self.mcp.tool()
+        async def execute_rebalancing(
+            rebalancing_plan: Dict[str, Any],
+            order_type: str = "MARKET",
+            execute_sells_first: bool = True,
+        ) -> Dict[str, Any]:
+            """Execute rebalancing trades from a rebalancing plan."""
+            if self.config.ibkr.readonly:
+                return {"success": False, "error": "Read-only mode - trading disabled"}
+
+            try:
+                result = await self.client.execute_rebalancing(
+                    rebalancing_plan=rebalancing_plan,
+                    order_type=order_type,
+                    execute_sells_first=execute_sells_first,
+                )
+                return {
+                    "success": True,
+                    "data": result,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            except Exception as e:
+                logger.error(f"Rebalancing execution error: {e}")
+                return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
+
+        # =====================================================================
+        # Additional Market Data Tools
+        # =====================================================================
+
+        @self.mcp.tool()
+        async def get_news(
+            symbol: str,
+            sec_type: str = "STK",
+            exchange: str = "SMART",
+        ) -> Dict[str, Any]:
+            """Get news bulletins for a symbol."""
+            try:
+                result = await self.client.get_news(symbol, sec_type, exchange)
+                return {
+                    "success": True,
+                    "data": result,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            except Exception as e:
+                logger.error(f"News retrieval error for {symbol}: {e}")
+                return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
+
+        @self.mcp.tool()
+        async def get_order_book(
+            symbol: str,
+            depth: int = 5,
+        ) -> Dict[str, Any]:
+            """Get Level 2 order book data (market depth)."""
+            try:
+                result = await self.client.get_order_book(symbol, depth)
+                return {
+                    "success": True,
+                    "data": result,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            except Exception as e:
+                logger.error(f"Order book error for {symbol}: {e}")
+                return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
+
+        @self.mcp.tool()
+        async def calculate_slippage(order_id: int) -> Dict[str, Any]:
+            """Calculate execution slippage for an order."""
+            try:
+                result = await self.client.calculate_slippage(order_id)
+                return {
+                    "success": True,
+                    "data": result,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            except Exception as e:
+                logger.error(f"Slippage calculation error for order {order_id}: {e}")
+                return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
+
+        # =====================================================================
+        # Additional Advanced Order Tools
+        # =====================================================================
+
+        @self.mcp.tool()
+        async def place_trailing_stop(
+            symbol: str,
+            action: str,
+            quantity: int,
+            trail_amount: Optional[float] = None,
+            trail_percent: Optional[float] = None,
+            sec_type: str = "STK",
+            exchange: str = "SMART",
+        ) -> Dict[str, Any]:
+            """Place a trailing stop order."""
+            if self.config.ibkr.readonly:
+                return {"success": False, "error": "Read-only mode - trading disabled"}
+
+            try:
+                result = await self.client.place_trailing_stop(
+                    symbol=symbol,
+                    action=action,
+                    quantity=quantity,
+                    trail_amount=trail_amount,
+                    trail_percent=trail_percent,
+                    sec_type=sec_type,
+                    exchange=exchange,
+                )
+                return {
+                    "success": True,
+                    "data": result,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            except Exception as e:
+                logger.error(f"Trailing stop order error: {e}")
+                return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
+
+        @self.mcp.tool()
+        async def place_one_cancels_all(
+            orders: List[Dict[str, Any]],
+            oca_group: str,
+            oca_type: int = 1,
+        ) -> Dict[str, Any]:
+            """Place One-Cancels-All (OCA) order group."""
+            if self.config.ibkr.readonly:
+                return {"success": False, "error": "Read-only mode - trading disabled"}
+
+            try:
+                result = await self.client.place_one_cancels_all(
+                    orders=orders,
+                    oca_group=oca_group,
+                    oca_type=oca_type,
+                )
+                return {
+                    "success": True,
+                    "data": result,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            except Exception as e:
+                logger.error(f"OCA order error: {e}")
+                return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
+
+        @self.mcp.tool()
+        async def place_algo_order(
+            symbol: str,
+            action: str,
+            quantity: int,
+            algo_strategy: str,
+            algo_params: Dict[str, str],
+            sec_type: str = "STK",
+            exchange: str = "SMART",
+        ) -> Dict[str, Any]:
+            """Place an algorithmic order using IBKR's algo strategies."""
+            if self.config.ibkr.readonly:
+                return {"success": False, "error": "Read-only mode - trading disabled"}
+
+            try:
+                result = await self.client.place_algo_order(
+                    symbol=symbol,
+                    action=action,
+                    quantity=quantity,
+                    algo_strategy=algo_strategy,
+                    algo_params=algo_params,
+                    sec_type=sec_type,
+                    exchange=exchange,
+                )
+                return {
+                    "success": True,
+                    "data": result,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            except Exception as e:
+                logger.error(f"Algo order error: {e}")
+                return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
+
+        # =====================================================================
+        # Additional Futures Tools
+        # =====================================================================
+
+        @self.mcp.tool()
+        async def get_contract_by_conid(con_id: int) -> Dict[str, Any]:
+            """Get contract details by contract ID."""
+            try:
+                result = await self.client.get_contract_by_conid(con_id)
+                return {
+                    "success": True,
+                    "data": result,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            except Exception as e:
+                logger.error(f"Contract lookup error for conId {con_id}: {e}")
+                return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
+
+        # =====================================================================
+        # Additional Scanner Tools
+        # =====================================================================
+
+        @self.mcp.tool()
+        async def create_custom_scanner(criteria: Dict[str, Any]) -> Dict[str, Any]:
+            """Create custom scanner with specific criteria."""
+            try:
+                result = await self.client.create_custom_scanner(criteria)
+                return {
+                    "success": True,
+                    "data": result,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            except Exception as e:
+                logger.error(f"Custom scanner error: {e}")
+                return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
+
+        @self.mcp.tool()
+        async def scan_options_volume(
+            underlying: Optional[str] = None,
+            min_volume: int = 1000,
+            min_open_interest: int = 100,
+        ) -> Dict[str, Any]:
+            """Scan for unusual options activity."""
+            try:
+                result = await self.client.scan_options_volume(
+                    underlying=underlying,
+                    min_volume=min_volume,
+                    min_open_interest=min_open_interest,
+                )
+                return {
+                    "success": True,
+                    "data": result,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            except Exception as e:
+                logger.error(f"Options volume scan error: {e}")
+                return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
+
+        # =====================================================================
+        # Additional Risk Management Tools
+        # =====================================================================
+
+        @self.mcp.tool()
+        async def set_stop_loss_orders(
+            trail_percent: Optional[float] = None,
+            trail_amount: Optional[float] = None,
+        ) -> Dict[str, Any]:
+            """Automatically set stop loss orders for all positions."""
+            if self.config.ibkr.readonly:
+                return {"success": False, "error": "Read-only mode - trading disabled"}
+
+            try:
+                result = await self.client.set_stop_loss_orders(
+                    trail_percent=trail_percent,
+                    trail_amount=trail_amount,
+                )
+                return {
+                    "success": True,
+                    "data": result,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            except Exception as e:
+                logger.error(f"Stop loss order error: {e}")
                 return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
 
     async def start(self) -> None:
