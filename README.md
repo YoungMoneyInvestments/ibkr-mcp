@@ -133,14 +133,42 @@ ibkr-mcp --help
 
 ## Environment Variables
 
+### Connection Settings
+
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `IBKR_MODE` | - | Connection preset (see below) |
 | `IBKR_HOST` | 127.0.0.1 | TWS/Gateway host |
-| `IBKR_PORT` | 7497 | TWS/Gateway port |
-| `IBKR_CLIENT_ID` | 1 | Connection client ID |
+| `IBKR_PORT` | 7497 | TWS/Gateway port (overridden by IBKR_MODE) |
+| `IBKR_CLIENT_ID` | 1 | Starting client ID |
+| `IBKR_CLIENT_ID_AUTO_RETRY` | true | Auto-retry with different client ID on conflict |
+| `IBKR_CLIENT_ID_MAX_ATTEMPTS` | 5 | Max attempts to find available client ID |
 | `IBKR_READONLY` | false | Disable trading |
 | `IBKR_TIMEOUT` | 30 | Connection timeout (seconds) |
 | `MCP_TRANSPORT` | stdio | Transport type |
+
+### Connection Mode Presets
+
+Use `IBKR_MODE` to easily switch between platforms:
+
+| Mode | Port | Description |
+|------|------|-------------|
+| `tws_paper` | 7497 | TWS Paper Trading (default) |
+| `tws_live` | 7496 | TWS Live Trading |
+| `gateway_paper` | 4002 | IB Gateway Paper Trading |
+| `gateway_live` | 4001 | IB Gateway Live Trading |
+
+**Examples:**
+```bash
+# Connect to IB Gateway paper trading
+IBKR_MODE=gateway_paper ibkr-mcp
+
+# Connect to TWS live with custom client ID
+IBKR_MODE=tws_live IBKR_CLIENT_ID=10 ibkr-mcp
+
+# Disable client ID auto-retry
+IBKR_CLIENT_ID_AUTO_RETRY=false ibkr-mcp
+```
 
 ## Available Tools
 

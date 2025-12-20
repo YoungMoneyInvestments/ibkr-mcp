@@ -111,6 +111,7 @@ class IBKRClient:
         self.config = config
         self.ib = IB()
         self._connected = False
+        self._active_client_id: Optional[int] = None  # Tracks the client ID that successfully connected
         self._reconnect_attempts = 0
         self._max_reconnect_attempts = config.max_reconnect_attempts
 
@@ -176,6 +177,9 @@ class IBKRClient:
         """
         Connect to IBKR TWS/Gateway with retry logic.
 
+        Supports automatic client ID retry if the initial ID is already in use.
+        This is controlled by config.client_id_auto_retry and config.client_id_max_attempts.
+
         Returns:
             True if connected successfully
 
@@ -187,37 +191,74 @@ class IBKRClient:
                 logger.info("Already connected to IBKR")
                 return True
 
-            logger.info(f"Connecting to IBKR at {self.config.host}:{self.config.port}")
+            mode_desc = self.config.get_mode_description()
+            logger.info(f"Connecting to IBKR at {self.config.host}:{self.config.port} ({mode_desc})")
 
-            try:
-                await asyncio.wait_for(
-                    self.ib.connectAsync(
-                        host=self.config.host,
-                        port=self.config.port,
-                        clientId=self.config.client_id,
-                        timeout=self.config.timeout,
-                        readonly=self.config.readonly
-                    ),
-                    timeout=self.config.timeout
-                )
+            # Determine retry settings
+            max_attempts = self.config.client_id_max_attempts if self.config.client_id_auto_retry else 1
+            current_client_id = self.config.client_id
+            last_error = None
 
-                self._connected = True
-                self._reconnect_attempts = 0
+            for attempt in range(max_attempts):
+                try:
+                    logger.debug(f"Connection attempt {attempt + 1}/{max_attempts} with client_id={current_client_id}")
 
-                # Start heartbeat monitoring
-                self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+                    await asyncio.wait_for(
+                        self.ib.connectAsync(
+                            host=self.config.host,
+                            port=self.config.port,
+                            clientId=current_client_id,
+                            timeout=self.config.timeout,
+                            readonly=self.config.readonly
+                        ),
+                        timeout=self.config.timeout
+                    )
 
-                logger.info(f"Successfully connected to IBKR (client_id={self.config.client_id})")
-                await self._fire_event('connected', {'timestamp': self._get_local_time().isoformat()})
+                    self._connected = True
+                    self._reconnect_attempts = 0
+                    self._active_client_id = current_client_id  # Track the ID that worked
 
-                return True
+                    # Start heartbeat monitoring
+                    self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
-            except asyncio.TimeoutError:
-                logger.error("Connection timeout")
-                raise ConnectionError("Connection timeout")
-            except Exception as e:
-                logger.error(f"Failed to connect to IBKR: {e}")
-                raise ConnectionError(f"Connection failed: {e}")
+                    logger.info(f"Successfully connected to IBKR (client_id={current_client_id}, mode={mode_desc})")
+                    await self._fire_event('connected', {
+                        'timestamp': self._get_local_time().isoformat(),
+                        'client_id': current_client_id,
+                        'mode': mode_desc
+                    })
+
+                    return True
+
+                except asyncio.TimeoutError:
+                    logger.error("Connection timeout")
+                    raise ConnectionError("Connection timeout")
+
+                except Exception as e:
+                    last_error = e
+                    error_str = str(e).lower()
+
+                    # Check if this is a client ID conflict error
+                    is_client_id_conflict = (
+                        "client id" in error_str or
+                        "clientid" in error_str or
+                        "already in use" in error_str or
+                        "duplicate" in error_str
+                    )
+
+                    if is_client_id_conflict and self.config.client_id_auto_retry and attempt < max_attempts - 1:
+                        current_client_id += 1
+                        logger.warning(f"Client ID conflict, retrying with client_id={current_client_id}")
+                        # Small delay before retry
+                        await asyncio.sleep(0.5)
+                        continue
+                    else:
+                        # Non-retryable error or out of attempts
+                        break
+
+            # All attempts failed
+            logger.error(f"Failed to connect to IBKR after {max_attempts} attempts: {last_error}")
+            raise ConnectionError(f"Connection failed: {last_error}")
 
     async def disconnect(self) -> None:
         """Disconnect from IBKR gracefully."""
