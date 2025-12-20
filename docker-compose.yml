@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  ibkr-mcp:
+    build: .
+    container_name: ibkr-mcp
+    environment:
+      - IBKR_HOST=host.docker.internal  # Connect to host's TWS
+      - IBKR_PORT=7497                   # Paper trading port
+      - IBKR_CLIENT_ID=1
+      - IBKR_READONLY=false
+      - MCP_TRANSPORT=sse
+      - MCP_PORT=8080
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  # Alternative: Live trading (use with caution)
+  ibkr-mcp-live:
+    build: .
+    container_name: ibkr-mcp-live
+    profiles:
+      - live
+    environment:
+      - IBKR_HOST=host.docker.internal
+      - IBKR_PORT=7496                   # Live trading port
+      - IBKR_CLIENT_ID=2
+      - IBKR_READONLY=false
+      - MCP_TRANSPORT=sse
+      - MCP_PORT=8081
+    ports:
+      - "8081:8081"
+    restart: unless-stopped
+
+  # Read-only mode for monitoring
+  ibkr-mcp-readonly:
+    build: .
+    container_name: ibkr-mcp-readonly
+    profiles:
+      - readonly
+    environment:
+      - IBKR_HOST=host.docker.internal
+      - IBKR_PORT=7497
+      - IBKR_CLIENT_ID=3
+      - IBKR_READONLY=true
+      - MCP_TRANSPORT=sse
+      - MCP_PORT=8082
+    ports:
+      - "8082:8082"
+    restart: unless-stopped

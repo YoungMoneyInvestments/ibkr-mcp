@@ -1,0 +1,76 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ibkr-mcp"
+version = "1.0.0"
+description = "Interactive Brokers MCP Server - Full-featured trading integration for AI assistants"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Cameron Bennion" }
+]
+keywords = ["mcp", "ibkr", "interactive-brokers", "trading", "ai", "claude"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+
+dependencies = [
+    "mcp>=1.0.0",
+    "fastmcp>=0.1.0",
+    "ib-async>=1.0.0",
+    "pydantic>=2.0.0",
+    "loguru>=0.7.0",
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "pytz>=2023.3",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+ibkr-mcp = "ibkr_mcp.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/cameronbennion/ibkr-mcp"
+Repository = "https://github.com/cameronbennion/ibkr-mcp"
+Issues = "https://github.com/cameronbennion/ibkr-mcp/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ibkr_mcp"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+ignore_missing_imports = true
