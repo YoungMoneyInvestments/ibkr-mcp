@@ -817,9 +817,8 @@ class IBKRClient:
 
             return TickData(
                 symbol=contract.symbol,
-                tick_type=1,  # Last price
-                price=price,
-                size=size
+                last=price,
+                volume=size
             )
 
         except DataError:
@@ -898,13 +897,13 @@ class IBKRClient:
             return [
                 BarData(
                     date=bar.date,
-                    open=Decimal(str(bar.open)),
-                    high=Decimal(str(bar.high)),
-                    low=Decimal(str(bar.low)),
-                    close=Decimal(str(bar.close)),
+                    open=float(bar.open),
+                    high=float(bar.high),
+                    low=float(bar.low),
+                    close=float(bar.close),
                     volume=bar.volume,
-                    wap=Decimal(str(bar.wap)) if hasattr(bar, 'wap') and bar.wap else None,
-                    count=bar.barCount if hasattr(bar, 'barCount') else None
+                    average=float(bar.wap) if hasattr(bar, 'wap') and bar.wap else None,
+                    bar_count=bar.barCount if hasattr(bar, 'barCount') else None
                 )
                 for bar in bars
             ]
