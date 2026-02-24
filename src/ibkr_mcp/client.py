@@ -169,6 +169,10 @@ class IBKRClient:
             dt = self.local_tz.localize(dt)
         return dt.astimezone(self.market_tz)
 
+    async def rate_limit(self) -> None:
+        """Acquire a rate limiter token before making an API call."""
+        await self._rate_limiter.acquire()
+
     # ========================================================================
     # Connection Management
     # ========================================================================
