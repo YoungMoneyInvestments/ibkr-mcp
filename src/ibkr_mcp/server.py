@@ -12,6 +12,8 @@ from loguru import logger
 from .config import ServerConfig
 from .client import IBKRClient
 from .models import SecType, OrderAction, OrderType, AlgoStrategy
+from .utils.circuit_breaker import TradingCircuitBreaker
+from .exceptions import CircuitBreakerError
 
 
 class IBKRMCPServer:
@@ -20,12 +22,67 @@ class IBKRMCPServer:
     def __init__(self, config: ServerConfig):
         self.config = config
         self.client = IBKRClient(config.ibkr)
+        self.circuit_breaker = TradingCircuitBreaker(
+            max_loss_per_minute=config.risk.max_loss_per_minute,
+            max_trades_per_minute=config.risk.max_trades_per_minute,
+            max_daily_loss=config.risk.max_daily_loss,
+            max_position_size=config.risk.max_position_size,
+        )
+        # Wire circuit breaker into fill callbacks for P&L tracking
+        self.client.register_event_handler('order_status', self._on_order_status)
         self.mcp = FastMCP(
             "IBKR MCP Server",
             version="1.0.0",
             description="Full-featured Interactive Brokers integration for AI assistants",
         )
         self._setup_tools()
+
+    def _estimate_trade_value(
+        self,
+        quantity: int,
+        limit_price: Optional[float] = None,
+        stop_price: Optional[float] = None,
+        entry_price: Optional[float] = None,
+    ) -> float:
+        """Estimate dollar value of a trade for circuit breaker checks."""
+        price = limit_price or stop_price or entry_price
+        if price and quantity:
+            return abs(quantity * price)
+        return 0.0
+
+    def _check_circuit_breaker(self, trade_value: float) -> Optional[Dict[str, Any]]:
+        """Check circuit breaker before trade. Returns error dict if blocked, None if OK."""
+        allowed, reason = self.circuit_breaker.check_trade(trade_value)
+        if not allowed:
+            return {
+                "success": False,
+                "error": f"Circuit breaker: {reason}",
+                "timestamp": datetime.now().isoformat(),
+            }
+        return None
+
+    def _on_order_status(self, event_data: Dict[str, Any]) -> None:
+        """Track order fills for circuit breaker P&L monitoring."""
+        try:
+            status = event_data.get('status', '')
+            if status == 'Filled':
+                filled = event_data.get('filled', 0)
+                avg_price = event_data.get('avg_fill_price', 0)
+                action = event_data.get('action', '')
+                commission = event_data.get('commission')
+
+                # Record commission as realized cost
+                if commission:
+                    self.circuit_breaker.record_pnl(-abs(commission))
+                    logger.debug(
+                        f"Circuit breaker recorded commission: -${abs(commission):.2f}"
+                    )
+
+                logger.info(
+                    f"Circuit breaker tracked fill: {action} {filled} @ ${avg_price}"
+                )
+        except Exception as e:
+            logger.error(f"Error in circuit breaker fill handler: {e}")
 
     def _setup_tools(self) -> None:
         """Register all MCP tools."""
@@ -198,6 +255,11 @@ class IBKRMCPServer:
             if self.config.ibkr.readonly:
                 return {"success": False, "error": "Read-only mode - trading disabled"}
 
+            trade_value = self._estimate_trade_value(quantity, limit_price=limit_price, stop_price=stop_price)
+            blocked = self._check_circuit_breaker(trade_value)
+            if blocked:
+                return blocked
+
             try:
                 result = await self.client.place_order(
                     symbol=symbol,
@@ -232,6 +294,11 @@ class IBKRMCPServer:
             """Place a bracket order (entry + take profit + stop loss)."""
             if self.config.ibkr.readonly:
                 return {"success": False, "error": "Read-only mode - trading disabled"}
+
+            trade_value = self._estimate_trade_value(quantity, entry_price=entry_price)
+            blocked = self._check_circuit_breaker(trade_value)
+            if blocked:
+                return blocked
 
             try:
                 result = await self.client.place_bracket_order(
@@ -411,6 +478,10 @@ class IBKRMCPServer:
             if self.config.ibkr.readonly:
                 return {"success": False, "error": "Read-only mode - trading disabled"}
 
+            blocked = self._check_circuit_breaker(0.0)
+            if blocked:
+                return blocked
+
             try:
                 from .tools.orders_advanced import create_twap_params, place_algo_order
 
@@ -457,6 +528,10 @@ class IBKRMCPServer:
             """Place a VWAP (Volume-Weighted Average Price) algorithmic order."""
             if self.config.ibkr.readonly:
                 return {"success": False, "error": "Read-only mode - trading disabled"}
+
+            blocked = self._check_circuit_breaker(0.0)
+            if blocked:
+                return blocked
 
             try:
                 from .tools.orders_advanced import create_vwap_params, place_algo_order
@@ -507,6 +582,10 @@ class IBKRMCPServer:
             if self.config.ibkr.readonly:
                 return {"success": False, "error": "Read-only mode - trading disabled"}
 
+            blocked = self._check_circuit_breaker(0.0)
+            if blocked:
+                return blocked
+
             try:
                 from .tools.orders_advanced import create_arrival_price_params, place_algo_order
 
@@ -552,6 +631,10 @@ class IBKRMCPServer:
             """Place an IB Adaptive algorithmic order."""
             if self.config.ibkr.readonly:
                 return {"success": False, "error": "Read-only mode - trading disabled"}
+
+            blocked = self._check_circuit_breaker(0.0)
+            if blocked:
+                return blocked
 
             try:
                 from .tools.orders_advanced import create_adaptive_params, place_algo_order
@@ -677,6 +760,10 @@ class IBKRMCPServer:
             if self.config.ibkr.readonly:
                 return {"success": False, "error": "Read-only mode - trading disabled"}
 
+            blocked = self._check_circuit_breaker(0.0)
+            if blocked:
+                return blocked
+
             try:
                 result = await self.client.execute_rebalancing(
                     rebalancing_plan=rebalancing_plan,
@@ -763,6 +850,10 @@ class IBKRMCPServer:
             if self.config.ibkr.readonly:
                 return {"success": False, "error": "Read-only mode - trading disabled"}
 
+            blocked = self._check_circuit_breaker(0.0)
+            if blocked:
+                return blocked
+
             try:
                 result = await self.client.place_trailing_stop(
                     symbol=symbol,
@@ -792,6 +883,10 @@ class IBKRMCPServer:
             if self.config.ibkr.readonly:
                 return {"success": False, "error": "Read-only mode - trading disabled"}
 
+            blocked = self._check_circuit_breaker(0.0)
+            if blocked:
+                return blocked
+
             try:
                 result = await self.client.place_one_cancels_all(
                     orders=orders,
@@ -820,6 +915,10 @@ class IBKRMCPServer:
             """Place an algorithmic order using IBKR's algo strategies."""
             if self.config.ibkr.readonly:
                 return {"success": False, "error": "Read-only mode - trading disabled"}
+
+            blocked = self._check_circuit_breaker(0.0)
+            if blocked:
+                return blocked
 
             try:
                 result = await self.client.place_algo_order(
@@ -911,6 +1010,10 @@ class IBKRMCPServer:
             if self.config.ibkr.readonly:
                 return {"success": False, "error": "Read-only mode - trading disabled"}
 
+            blocked = self._check_circuit_breaker(0.0)
+            if blocked:
+                return blocked
+
             try:
                 result = await self.client.set_stop_loss_orders(
                     trail_percent=trail_percent,
@@ -923,6 +1026,47 @@ class IBKRMCPServer:
                 }
             except Exception as e:
                 logger.error(f"Stop loss order error: {e}")
+                return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
+
+        # =====================================================================
+        # Circuit Breaker Tools
+        # =====================================================================
+
+        @self.mcp.tool()
+        async def circuit_breaker_status() -> Dict[str, Any]:
+            """Get circuit breaker status including trip state, daily P&L, and utilization."""
+            try:
+                status = self.circuit_breaker.get_status()
+                return {
+                    "success": True,
+                    "data": status,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            except Exception as e:
+                logger.error(f"Circuit breaker status error: {e}")
+                return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
+
+        @self.mcp.tool()
+        async def circuit_breaker_reset(admin_override: bool = False) -> Dict[str, Any]:
+            """Reset the circuit breaker after it has been tripped.
+
+            Args:
+                admin_override: Force reset even if trip count >= 3.
+            """
+            try:
+                success = self.circuit_breaker.reset(admin_override=admin_override)
+                status = self.circuit_breaker.get_status()
+                return {
+                    "success": success,
+                    "data": {
+                        "reset": success,
+                        "message": "Circuit breaker reset" if success else "Reset failed - too many trips (admin override required)",
+                        "status": status,
+                    },
+                    "timestamp": datetime.now().isoformat(),
+                }
+            except Exception as e:
+                logger.error(f"Circuit breaker reset error: {e}")
                 return {"success": False, "error": str(e), "timestamp": datetime.now().isoformat()}
 
     async def start(self) -> None:
