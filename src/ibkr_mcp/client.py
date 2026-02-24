@@ -1150,23 +1150,28 @@ class IBKRClient:
 
     async def calculate_rebalancing_orders(
         self,
-        target_allocation: Dict[str, float],
-        tolerance: float = 0.05
+        target_allocations: Dict[str, float],
+        rebalance_threshold: float = 0.05,
+        use_cash: bool = True,
     ) -> Dict[str, Any]:
         """Calculate orders needed to rebalance portfolio."""
         from .tools import account
         return await account.calculate_rebalancing_orders(
-            self, target_allocation, tolerance
+            self, target_allocations, rebalance_threshold, use_cash
         )
 
     async def execute_rebalancing(
         self,
-        rebalancing_orders: List[Dict[str, Any]],
-        dry_run: bool = True
+        rebalancing_plan: Dict[str, Any],
+        order_type: str = "MARKET",
+        execute_sells_first: bool = True,
     ) -> Dict[str, Any]:
         """Execute portfolio rebalancing orders."""
         from .tools import account
-        return await account.execute_rebalancing(self, rebalancing_orders, dry_run)
+        return await account.execute_rebalancing(
+            self, rebalancing_plan, self.place_order,
+            order_type, execute_sells_first
+        )
 
     # --- Advanced Order Methods ---
 
@@ -1193,10 +1198,10 @@ class IBKRClient:
         symbol: str,
         action: str,
         quantity: int,
-        trail_amount: float,
+        trail_amount: Optional[float] = None,
         trail_percent: Optional[float] = None,
         sec_type: str = "STK",
-        exchange: str = "SMART"
+        exchange: str = "SMART",
     ) -> Dict[str, Any]:
         """Place a trailing stop order."""
         from .tools import orders_advanced
@@ -1207,17 +1212,14 @@ class IBKRClient:
 
     async def place_one_cancels_all(
         self,
-        symbol: str,
-        action: str,
-        quantity: int,
-        order_configs: List[Dict[str, Any]],
-        sec_type: str = "STK",
-        exchange: str = "SMART"
+        orders: List[Dict[str, Any]],
+        oca_group: str,
+        oca_type: int = 1,
     ) -> Dict[str, Any]:
         """Place a one-cancels-all (OCA) order group."""
         from .tools import orders_advanced
         return await orders_advanced.place_one_cancels_all(
-            self, symbol, action, quantity, order_configs, sec_type, exchange
+            self, orders, oca_group, oca_type
         )
 
     async def place_algo_order(
@@ -1252,14 +1254,15 @@ class IBKRClient:
         self,
         symbol: str,
         strategy: str,
-        expiry: str,
-        strikes: List[float],
-        exchange: str = "SMART"
+        strike1: float,
+        strike2: Optional[float] = None,
+        expiry: Optional[str] = None,
+        quantity: int = 1,
     ) -> Dict[str, Any]:
         """Analyze option spread strategies."""
         from .tools import options
         return await options.analyze_option_spread(
-            self, symbol, strategy, expiry, strikes, exchange
+            self, symbol, strategy, strike1, strike2, expiry, quantity
         )
 
     # --- Futures Methods ---
@@ -1315,14 +1318,14 @@ class IBKRClient:
 
     async def scan_options_volume(
         self,
-        underlying: str,
+        underlying: Optional[str] = None,
         min_volume: int = 1000,
-        exchange: str = "SMART"
+        min_open_interest: int = 100,
     ) -> Dict[str, Any]:
-        """Scan for high-volume options."""
+        """Scan for unusual options activity."""
         from .tools import scanners
         return await scanners.scan_options_volume(
-            self, underlying, min_volume, exchange
+            self, underlying, min_volume, min_open_interest
         )
 
     # --- Risk Management Methods ---
@@ -1331,16 +1334,14 @@ class IBKRClient:
         self,
         symbol: str,
         risk_amount: float,
-        stop_loss_price: float,
-        entry_price: float,
-        sec_type: str = "STK",
-        exchange: str = "SMART"
+        stop_loss: float,
+        entry_price: Optional[float] = None,
+        method: str = "fixed_risk",
     ) -> Dict[str, Any]:
         """Calculate position size based on risk parameters."""
         from .tools import risk
         return await risk.calculate_position_size(
-            self, symbol, risk_amount, stop_loss_price,
-            entry_price, sec_type, exchange
+            self, symbol, risk_amount, stop_loss, entry_price, method
         )
 
     async def check_risk_limits(self) -> Dict[str, Any]:
@@ -1359,9 +1360,9 @@ class IBKRClient:
 
     async def set_stop_loss_orders(
         self,
-        stop_loss_pct: float = 0.02,
-        trailing: bool = False
+        trail_percent: Optional[float] = None,
+        trail_amount: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Set stop loss orders for all positions."""
         from .tools import risk
-        return await risk.set_stop_loss_orders(self, stop_loss_pct, trailing)
+        return await risk.set_stop_loss_orders(self, trail_percent, trail_amount)
