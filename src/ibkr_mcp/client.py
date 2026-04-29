@@ -139,6 +139,8 @@ class IBKRClient:
         # Heartbeat tracking
         self._last_heartbeat = 0
         self._heartbeat_task: Optional[asyncio.Task] = None
+        self._reconnect_task: Optional[asyncio.Task] = None
+        self._reconnect_lock = asyncio.Lock()
 
     def _setup_timezone(self) -> None:
         """Setup timezone handling for market data."""
@@ -308,29 +310,62 @@ class IBKRClient:
         Raises:
             ConnectionError: If maximum reconnection attempts exceeded
         """
-        if self._reconnect_attempts >= self._max_reconnect_attempts:
-            raise ConnectionError("Maximum reconnection attempts exceeded")
+        current_task = asyncio.current_task()
+        if current_task and self._reconnect_task is None:
+            self._reconnect_task = current_task
 
-        self._reconnect_attempts += 1
+        async with self._reconnect_lock:
+            # If another reconnection already restored connectivity, no-op.
+            if self.is_connected():
+                logger.info("Reconnect skipped - connection already healthy")
+                self._reconnect_attempts = 0
+                return True
 
-        # Calculate exponential backoff delay
-        base_delay = self.config.reconnect_delay
-        delay = min(base_delay * (2 ** (self._reconnect_attempts - 1)), 60.0)
-
-        logger.warning(
-            f"Attempting reconnection ({self._reconnect_attempts}/{self._max_reconnect_attempts}) "
-            f"after {delay:.1f}s delay"
-        )
-
-        try:
-            await self.disconnect()
-            await asyncio.sleep(delay)
-            return await self.connect()
-        except Exception as e:
-            logger.error(f"Reconnection attempt {self._reconnect_attempts} failed: {e}")
             if self._reconnect_attempts >= self._max_reconnect_attempts:
-                raise ConnectionError(f"All reconnection attempts failed: {e}")
-            return False
+                raise ConnectionError("Maximum reconnection attempts exceeded")
+
+            self._reconnect_attempts += 1
+
+            # Calculate exponential backoff delay
+            base_delay = self.config.reconnect_delay
+            delay = min(base_delay * (2 ** (self._reconnect_attempts - 1)), 60.0)
+
+            logger.warning(
+                f"Attempting reconnection ({self._reconnect_attempts}/{self._max_reconnect_attempts}) "
+                f"after {delay:.1f}s delay"
+            )
+
+            try:
+                await self.disconnect()
+                await asyncio.sleep(delay)
+                return await self.connect()
+            except Exception as e:
+                logger.error(f"Reconnection attempt {self._reconnect_attempts} failed: {e}")
+                if self._reconnect_attempts >= self._max_reconnect_attempts:
+                    raise ConnectionError(f"All reconnection attempts failed: {e}")
+                return False
+            finally:
+                if current_task and self._reconnect_task is current_task:
+                    self._reconnect_task = None
+
+    def _schedule_reconnect(self, reason: str) -> None:
+        """Start reconnect task once; avoid concurrent reconnect storms."""
+        if self._reconnect_task and not self._reconnect_task.done():
+            logger.debug(f"Reconnect already in progress, skipping duplicate trigger ({reason})")
+            return
+
+        reconnect_task = asyncio.create_task(self.reconnect())
+        self._reconnect_task = reconnect_task
+
+        def _clear_reconnect_task(task: asyncio.Task) -> None:
+            if self._reconnect_task is task:
+                self._reconnect_task = None
+            if task.cancelled():
+                logger.debug("Reconnect task cancelled")
+            elif task.exception():
+                logger.error(f"Reconnect task failed: {task.exception()}")
+
+        reconnect_task.add_done_callback(_clear_reconnect_task)
 
     async def _heartbeat_loop(self) -> None:
         """Monitor connection health with periodic heartbeats."""
@@ -340,8 +375,13 @@ class IBKRClient:
             try:
                 await asyncio.sleep(heartbeat_interval)
 
-                # Request server time as heartbeat
-                server_time = self.ib.reqCurrentTime()
+                # Use async heartbeat request to avoid nested event loop execution.
+                if hasattr(self.ib, "reqCurrentTimeAsync"):
+                    server_time = await self.ib.reqCurrentTimeAsync()
+                else:
+                    if not self.ib.isConnected():
+                        raise ConnectionError("IBKR connection lost during heartbeat")
+                    server_time = "connected"
                 self._last_heartbeat = time.time()
 
                 logger.debug(f"Heartbeat OK - Server time: {server_time}")
@@ -349,9 +389,21 @@ class IBKRClient:
             except asyncio.CancelledError:
                 break
             except Exception as e:
+                error_msg = str(e)
+                if (
+                    isinstance(e, RuntimeError)
+                    and "event loop is already running" in error_msg.lower()
+                    and self.ib.isConnected()
+                ):
+                    logger.warning(
+                        "Heartbeat hit event-loop reentrancy but IBKR is connected; skipping reconnect"
+                    )
+                    self._last_heartbeat = time.time()
+                    continue
+
                 logger.error(f"Heartbeat failed: {e}")
                 # Attempt reconnection
-                asyncio.create_task(self.reconnect())
+                self._schedule_reconnect("heartbeat")
                 break
 
     def _ensure_connected(self) -> None:
