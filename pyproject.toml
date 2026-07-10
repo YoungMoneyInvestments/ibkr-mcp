@@ -7,7 +7,7 @@ name = "ibkr-mcp"
 version = "1.0.0"
 description = "Interactive Brokers MCP Server - Full-featured trading integration for AI assistants"
 readme = "README.md"
-license = "MIT"
+license = "Proprietary"
 requires-python = ">=3.10"
 authors = [
     { name = "Cameron Bennion" }
@@ -18,7 +18,6 @@ classifiers = [
     "Environment :: Console",
     "Intended Audience :: Developers",
     "Intended Audience :: Financial and Insurance Industry",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
