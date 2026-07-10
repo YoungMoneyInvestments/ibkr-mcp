@@ -7,7 +7,7 @@ name = "ibkr-mcp"
 version = "1.0.0"
 description = "Interactive Brokers MCP Server - Full-featured trading integration for AI assistants"
 readme = "README.md"
-license = "Proprietary"
+license = "LicenseRef-Proprietary"
 requires-python = ">=3.10"
 authors = [
     { name = "Cameron Bennion" }

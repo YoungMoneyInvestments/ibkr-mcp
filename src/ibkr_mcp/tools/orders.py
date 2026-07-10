@@ -36,6 +36,7 @@ async def place_order(
     stop_price: Optional[float] = None,
     sec_type: str = "STK",
     exchange: str = "SMART",
+    confirm: bool = False,
 ) -> Dict[str, Any]:
     """
     Place a basic order (market, limit, or stop).
@@ -50,9 +51,14 @@ async def place_order(
         stop_price: Stop price for stop orders
         sec_type: Security type (STK, OPT, FUT, CASH)
         exchange: Exchange to route order (default SMART)
+        confirm: Must be True to actually transmit the order to IBKR, unless
+            client.config.autonomous_execution is enabled. Defaults to False:
+            when neither confirm nor autonomous_execution is set, this returns
+            a PENDING_APPROVAL preview instead of placing anything.
 
     Returns:
-        Dict containing order details and status
+        Dict containing order details and status, or a PENDING_APPROVAL
+        preview dict if approval is required and not yet confirmed.
 
     Raises:
         OrderError: If order placement fails
@@ -92,6 +98,31 @@ async def place_order(
             order = StopOrder(action, quantity, stop_price)
         else:
             raise ValidationError(f"Unsupported order type: {order_type}")
+
+        # Approval gate: default posture is approval-required. Fully-autonomous
+        # execution is an explicit opt-in via client.config.autonomous_execution.
+        if not confirm and not client.config.autonomous_execution:
+            return {
+                "success": True,
+                "status": "PENDING_APPROVAL",
+                "pending_approval": True,
+                "would_place": {
+                    "symbol": symbol,
+                    "action": action,
+                    "quantity": quantity,
+                    "order_type": order_type,
+                    "limit_price": limit_price,
+                    "stop_price": stop_price,
+                    "sec_type": sec_type,
+                    "exchange": exchange,
+                },
+                "message": (
+                    "Approval required before this order is transmitted to IBKR. "
+                    "Re-call place_order with confirm=True to submit it, or set "
+                    "IBKR_MCP_AUTONOMOUS_EXECUTION=true to enable autonomous execution."
+                ),
+                "timestamp": datetime.now().isoformat(),
+            }
 
         # Place the order
         trade = client.ib.placeOrder(contract, order)

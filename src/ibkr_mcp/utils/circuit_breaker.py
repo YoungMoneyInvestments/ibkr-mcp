@@ -66,12 +66,17 @@ class TradingCircuitBreaker:
             f"max_position_size: ${max_position_size}"
         )
 
-    def check_trade(self, trade_value: float) -> Tuple[bool, str]:
+    def check_trade(self, trade_value: float, dry_run: bool = False) -> Tuple[bool, str]:
         """
         Check if trade should be allowed.
 
         Args:
             trade_value: Dollar value of the proposed trade
+            dry_run: If True, evaluate the check without recording the trade
+                against the per-minute window or tripping the breaker. Use this
+                for approval-required previews that are not actually being
+                transmitted yet, so a staged (not-yet-confirmed) order doesn't
+                consume real trade-rate budget or falsely trip the breaker.
 
         Returns:
             Tuple of (allowed: bool, reason: str)
@@ -85,25 +90,36 @@ class TradingCircuitBreaker:
 
         # Check position size
         if abs(trade_value) > self.max_position_size:
-            self.trip(
+            reason = (
                 f"Position size ${abs(trade_value):.2f} exceeds "
                 f"limit ${self.max_position_size:.2f}"
             )
+            if dry_run:
+                return False, reason
+            self.trip(reason)
             return False, self.trip_reason
 
         # Check trades per minute
-        self.minute_trades = [
+        recent_trades = [
             t for t in self.minute_trades
             if (current_time - t).total_seconds() < 60
         ]
-        if len(self.minute_trades) >= self.max_trades_per_minute:
-            self.trip(
-                f"Too many trades: {len(self.minute_trades)} in last minute "
+        if len(recent_trades) >= self.max_trades_per_minute:
+            reason = (
+                f"Too many trades: {len(recent_trades)} in last minute "
                 f"(limit: {self.max_trades_per_minute})"
             )
+            if dry_run:
+                return False, reason
+            self.minute_trades = recent_trades
+            self.trip(reason)
             return False, self.trip_reason
 
+        if dry_run:
+            return True, "OK"
+
         # Record this trade
+        self.minute_trades = recent_trades
         self.minute_trades.append(current_time)
 
         return True, "OK"

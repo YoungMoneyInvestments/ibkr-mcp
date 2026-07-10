@@ -41,6 +41,17 @@ class IBKRConfig(BaseModel):
     timeout: int = Field(default=30, description="Connection timeout in seconds")
     readonly: bool = Field(default=False, description="Read-only mode")
 
+    # Execution approval posture
+    autonomous_execution: bool = Field(
+        default=False,
+        description=(
+            "If False (default), order-placement tools stage orders for approval "
+            "and require an explicit confirm=True call before transmitting to IBKR. "
+            "If True, orders transmit immediately (today's behavior). Controlled by "
+            "IBKR_MCP_AUTONOMOUS_EXECUTION."
+        ),
+    )
+
     # Connection mode preset
     mode: Optional[str] = Field(
         default=None,
@@ -86,6 +97,7 @@ class IBKRConfig(BaseModel):
             client_id=int(os.getenv("IBKR_CLIENT_ID", "1")),
             timeout=int(os.getenv("IBKR_TIMEOUT", "30")),
             readonly=os.getenv("IBKR_READONLY", "false").lower() == "true",
+            autonomous_execution=os.getenv("IBKR_MCP_AUTONOMOUS_EXECUTION", "false").lower() == "true",
             mode=mode,
             client_id_auto_retry=os.getenv("IBKR_CLIENT_ID_AUTO_RETRY", "true").lower() == "true",
             client_id_max_attempts=int(os.getenv("IBKR_CLIENT_ID_MAX_ATTEMPTS", "5")),

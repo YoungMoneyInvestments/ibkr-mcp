@@ -1089,7 +1089,8 @@ class IBKRClient:
         limit_price: Optional[float] = None,
         stop_price: Optional[float] = None,
         sec_type: str = "STK",
-        exchange: str = "SMART"
+        exchange: str = "SMART",
+        confirm: bool = False,
     ) -> Dict[str, Any]:
         """
         Place an order (wrapper that delegates to orders tool).
@@ -1103,14 +1104,16 @@ class IBKRClient:
             stop_price: Stop price (for STP orders)
             sec_type: Security type
             exchange: Exchange
+            confirm: Must be True to transmit, unless config.autonomous_execution
+                is enabled. Defaults to False (approval required).
 
         Returns:
-            Dict with order result
+            Dict with order result, or a PENDING_APPROVAL preview
         """
         from .tools import orders
         return await orders.place_order(
             self, symbol, action, quantity, order_type,
-            limit_price, stop_price, sec_type, exchange
+            limit_price, stop_price, sec_type, exchange, confirm
         )
 
     # --- Market Data Methods ---
@@ -1187,13 +1190,14 @@ class IBKRClient:
         profit_target: float,
         stop_loss: float,
         sec_type: str = "STK",
-        exchange: str = "SMART"
+        exchange: str = "SMART",
+        confirm: bool = False,
     ) -> Dict[str, Any]:
         """Place a bracket order (entry + take profit + stop loss)."""
         from .tools import orders_advanced
         return await orders_advanced.place_bracket_order(
             self, symbol, action, quantity, entry_price,
-            profit_target, stop_loss, sec_type, exchange
+            profit_target, stop_loss, sec_type, exchange, confirm
         )
 
     async def place_trailing_stop(
@@ -1205,12 +1209,13 @@ class IBKRClient:
         trail_percent: Optional[float] = None,
         sec_type: str = "STK",
         exchange: str = "SMART",
+        confirm: bool = False,
     ) -> Dict[str, Any]:
         """Place a trailing stop order."""
         from .tools import orders_advanced
         return await orders_advanced.place_trailing_stop(
             self, symbol, action, quantity, trail_amount,
-            trail_percent, sec_type, exchange
+            trail_percent, sec_type, exchange, confirm
         )
 
     async def place_one_cancels_all(
@@ -1218,11 +1223,12 @@ class IBKRClient:
         orders: List[Dict[str, Any]],
         oca_group: str,
         oca_type: int = 1,
+        confirm: bool = False,
     ) -> Dict[str, Any]:
         """Place a one-cancels-all (OCA) order group."""
         from .tools import orders_advanced
         return await orders_advanced.place_one_cancels_all(
-            self, orders, oca_group, oca_type
+            self, orders, oca_group, oca_type, confirm
         )
 
     async def place_algo_order(
@@ -1233,13 +1239,14 @@ class IBKRClient:
         algo_strategy: str,
         algo_params: Dict[str, Any],
         sec_type: str = "STK",
-        exchange: str = "SMART"
+        exchange: str = "SMART",
+        confirm: bool = False,
     ) -> Dict[str, Any]:
         """Place an algorithmic order (TWAP, VWAP, etc.)."""
         from .tools import orders_advanced
         return await orders_advanced.place_algo_order(
             self, symbol, action, quantity, algo_strategy,
-            algo_params, sec_type, exchange
+            algo_params, sec_type, exchange, confirm
         )
 
     # --- Options Methods ---

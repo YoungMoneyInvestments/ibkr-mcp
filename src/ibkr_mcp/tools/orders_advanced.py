@@ -48,6 +48,7 @@ async def place_bracket_order(
     stop_loss: float,
     sec_type: str = "STK",
     exchange: str = "SMART",
+    confirm: bool = False,
 ) -> Dict[str, Any]:
     """
     Place a bracket order (entry + profit target + stop loss).
@@ -67,9 +68,12 @@ async def place_bracket_order(
         stop_loss: Stop loss price
         sec_type: Security type (STK, OPT, FUT, CASH)
         exchange: Exchange to route order (default SMART)
+        confirm: Must be True to actually transmit to IBKR, unless
+            client.config.autonomous_execution is enabled.
 
     Returns:
-        Dict containing bracket order details with all three order IDs
+        Dict containing bracket order details with all three order IDs,
+        or a PENDING_APPROVAL preview if approval is required and not confirmed.
 
     Raises:
         OrderError: If order placement fails
@@ -114,6 +118,31 @@ async def place_bracket_order(
             takeProfitLimitPrice=profit_target,
             stopLossPrice=stop_loss,
         )
+
+        # Approval gate: default posture is approval-required.
+        if not confirm and not client.config.autonomous_execution:
+            return {
+                "success": True,
+                "status": "PENDING_APPROVAL",
+                "pending_approval": True,
+                "would_place": {
+                    "order_type": "BRACKET",
+                    "symbol": symbol,
+                    "action": action,
+                    "quantity": quantity,
+                    "entry_price": entry_price,
+                    "profit_target": profit_target,
+                    "stop_loss": stop_loss,
+                    "sec_type": sec_type,
+                    "exchange": exchange,
+                },
+                "message": (
+                    "Approval required before this bracket order is transmitted to IBKR. "
+                    "Re-call place_bracket_order with confirm=True to submit it, or set "
+                    "IBKR_MCP_AUTONOMOUS_EXECUTION=true to enable autonomous execution."
+                ),
+                "timestamp": datetime.now().isoformat(),
+            }
 
         # Place the bracket order (returns list of 3 orders)
         trades = []
@@ -162,6 +191,7 @@ async def place_trailing_stop(
     trail_percent: Optional[float] = None,
     sec_type: str = "STK",
     exchange: str = "SMART",
+    confirm: bool = False,
 ) -> Dict[str, Any]:
     """
     Place a trailing stop order.
@@ -180,9 +210,12 @@ async def place_trailing_stop(
         trail_percent: Trail by percentage (e.g., 5 for 5%)
         sec_type: Security type (STK, OPT, FUT, CASH)
         exchange: Exchange to route order (default SMART)
+        confirm: Must be True to actually transmit to IBKR, unless
+            client.config.autonomous_execution is enabled.
 
     Returns:
-        Dict containing trailing stop order details
+        Dict containing trailing stop order details, or a PENDING_APPROVAL
+        preview if approval is required and not confirmed.
 
     Raises:
         OrderError: If order placement fails
@@ -228,6 +261,30 @@ async def place_trailing_stop(
         elif trail_percent is not None:
             order.trailingPercent = trail_percent  # Trail by percentage
 
+        # Approval gate: default posture is approval-required.
+        if not confirm and not client.config.autonomous_execution:
+            return {
+                "success": True,
+                "status": "PENDING_APPROVAL",
+                "pending_approval": True,
+                "would_place": {
+                    "order_type": "TRAILING_STOP",
+                    "symbol": symbol,
+                    "action": action,
+                    "quantity": quantity,
+                    "trail_amount": trail_amount,
+                    "trail_percent": trail_percent,
+                    "sec_type": sec_type,
+                    "exchange": exchange,
+                },
+                "message": (
+                    "Approval required before this trailing stop is transmitted to IBKR. "
+                    "Re-call place_trailing_stop with confirm=True to submit it, or set "
+                    "IBKR_MCP_AUTONOMOUS_EXECUTION=true to enable autonomous execution."
+                ),
+                "timestamp": datetime.now().isoformat(),
+            }
+
         # Place order
         trade = client.ib.placeOrder(contract, order)
 
@@ -266,6 +323,7 @@ async def place_one_cancels_all(
     orders: List[Dict[str, Any]],
     oca_group: str,
     oca_type: int = 1,
+    confirm: bool = False,
 ) -> Dict[str, Any]:
     """
     Place One-Cancels-All (OCA) order group.
@@ -289,9 +347,12 @@ async def place_one_cancels_all(
             1 = Cancel all remaining orders on fill
             2 = Reduce quantity proportionally on partial fill
             3 = Reduce with overfill protection
+        confirm: Must be True to actually transmit to IBKR, unless
+            client.config.autonomous_execution is enabled.
 
     Returns:
-        Dict containing list of OCA order details
+        Dict containing list of OCA order details, or a PENDING_APPROVAL
+        preview if approval is required and not confirmed.
 
     Raises:
         OrderError: If order placement fails
@@ -307,6 +368,27 @@ async def place_one_cancels_all(
 
         if oca_type not in [1, 2, 3]:
             raise ValidationError("OCA type must be 1, 2, or 3")
+
+        # Approval gate: default posture is approval-required. Checked before
+        # any contract qualification or order transmission for the group.
+        if not confirm and not client.config.autonomous_execution:
+            return {
+                "success": True,
+                "status": "PENDING_APPROVAL",
+                "pending_approval": True,
+                "would_place": {
+                    "order_type": "OCA",
+                    "oca_group": oca_group,
+                    "oca_type": oca_type,
+                    "orders": orders,
+                },
+                "message": (
+                    "Approval required before this OCA order group is transmitted to IBKR. "
+                    "Re-call place_one_cancels_all with confirm=True to submit it, or set "
+                    "IBKR_MCP_AUTONOMOUS_EXECUTION=true to enable autonomous execution."
+                ),
+                "timestamp": datetime.now().isoformat(),
+            }
 
         # Ensure client is connected
         if not client.is_connected():
@@ -407,6 +489,7 @@ async def place_algo_order(
     algo_params: Dict[str, str],
     sec_type: str = "STK",
     exchange: str = "SMART",
+    confirm: bool = False,
 ) -> Dict[str, Any]:
     """
     Place an algorithmic order using IBKR's algo strategies.
@@ -431,9 +514,12 @@ async def place_algo_order(
         algo_params: Algorithm-specific parameters (use helper functions)
         sec_type: Security type (STK, OPT, FUT, CASH)
         exchange: Exchange to route order (default SMART)
+        confirm: Must be True to actually transmit to IBKR, unless
+            client.config.autonomous_execution is enabled.
 
     Returns:
-        Dict containing algo order details
+        Dict containing algo order details, or a PENDING_APPROVAL preview if
+        approval is required and not confirmed.
 
     Raises:
         OrderError: If order placement fails
@@ -489,6 +575,30 @@ async def place_algo_order(
         order.algoParams = []
         for key, value in algo_params.items():
             order.algoParams.append(TagValue(key, str(value)))
+
+        # Approval gate: default posture is approval-required.
+        if not confirm and not client.config.autonomous_execution:
+            return {
+                "success": True,
+                "status": "PENDING_APPROVAL",
+                "pending_approval": True,
+                "would_place": {
+                    "order_type": "ALGO",
+                    "symbol": symbol,
+                    "action": action,
+                    "quantity": quantity,
+                    "algo_strategy": algo_strategy,
+                    "algo_params": algo_params,
+                    "sec_type": sec_type,
+                    "exchange": exchange,
+                },
+                "message": (
+                    "Approval required before this algo order is transmitted to IBKR. "
+                    "Re-call place_algo_order with confirm=True to submit it, or set "
+                    "IBKR_MCP_AUTONOMOUS_EXECUTION=true to enable autonomous execution."
+                ),
+                "timestamp": datetime.now().isoformat(),
+            }
 
         # Place the algo order
         trade = client.ib.placeOrder(contract, order)

@@ -4,7 +4,7 @@ Main IBKR MCP Server implementation using FastMCP.
 
 import asyncio
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastmcp import FastMCP
 from loguru import logger
@@ -60,6 +60,42 @@ class IBKRMCPServer:
                 "timestamp": datetime.now().isoformat(),
             }
         return None
+
+    def _will_transmit(self, confirm: bool) -> bool:
+        """Whether this call will actually transmit to IBKR (vs. stage for approval)."""
+        return confirm or self.config.ibkr.autonomous_execution
+
+    def _check_circuit_breaker_gated(
+        self, trade_value: float, will_transmit: bool
+    ) -> Tuple[Optional[Dict[str, Any]], Tuple[bool, str]]:
+        """
+        Circuit-breaker check for approval-gated order tools.
+
+        When will_transmit is False (order is only being staged for approval,
+        not actually sent), the check runs in dry_run mode so a preview does
+        not consume trade-rate budget or trip the breaker for a trade that
+        was never transmitted.
+
+        Returns:
+            (blocked_response_or_none, (allowed, reason))
+        """
+        allowed, reason = self.circuit_breaker.check_trade(
+            trade_value, dry_run=not will_transmit
+        )
+        if not allowed:
+            return {
+                "success": False,
+                "error": f"Circuit breaker: {reason}",
+                "timestamp": datetime.now().isoformat(),
+            }, (allowed, reason)
+        return None, (allowed, reason)
+
+    @staticmethod
+    def _with_risk_gate(result: Any, allowed: bool, reason: str) -> Any:
+        """Attach risk-gate outcome to a PENDING_APPROVAL preview response."""
+        if isinstance(result, dict) and result.get("pending_approval"):
+            return {**result, "risk_gate": {"allowed": allowed, "reason": reason}}
+        return result
 
     def _on_order_status(self, event_data: Dict[str, Any]) -> None:
         """Track order fills for circuit breaker P&L monitoring."""
@@ -250,13 +286,21 @@ class IBKRMCPServer:
             stop_price: Optional[float] = None,
             sec_type: str = "STK",
             exchange: str = "SMART",
+            confirm: bool = False,
         ) -> Dict[str, Any]:
-            """Place a trading order (market, limit, or stop)."""
+            """Place a trading order (market, limit, or stop).
+
+            Approval-required by default: without confirm=True (and unless
+            IBKR_MCP_AUTONOMOUS_EXECUTION=true), this stages the order and
+            returns a PENDING_APPROVAL preview instead of transmitting it.
+            Re-call with confirm=True to actually submit it to IBKR.
+            """
             if self.config.ibkr.readonly:
                 return {"success": False, "error": "Read-only mode - trading disabled"}
 
+            will_transmit = self._will_transmit(confirm)
             trade_value = self._estimate_trade_value(quantity, limit_price=limit_price, stop_price=stop_price)
-            blocked = self._check_circuit_breaker(trade_value)
+            blocked, (allowed, reason) = self._check_circuit_breaker_gated(trade_value, will_transmit)
             if blocked:
                 return blocked
 
@@ -270,7 +314,9 @@ class IBKRMCPServer:
                     stop_price=stop_price,
                     sec_type=sec_type,
                     exchange=exchange,
+                    confirm=confirm,
                 )
+                result = self._with_risk_gate(result, allowed, reason)
                 return {
                     "success": True,
                     "data": result,
@@ -290,13 +336,19 @@ class IBKRMCPServer:
             stop_loss: float,
             sec_type: str = "STK",
             exchange: str = "SMART",
+            confirm: bool = False,
         ) -> Dict[str, Any]:
-            """Place a bracket order (entry + take profit + stop loss)."""
+            """Place a bracket order (entry + take profit + stop loss).
+
+            Approval-required by default; re-call with confirm=True to transmit,
+            or set IBKR_MCP_AUTONOMOUS_EXECUTION=true to skip approval.
+            """
             if self.config.ibkr.readonly:
                 return {"success": False, "error": "Read-only mode - trading disabled"}
 
+            will_transmit = self._will_transmit(confirm)
             trade_value = self._estimate_trade_value(quantity, entry_price=entry_price)
-            blocked = self._check_circuit_breaker(trade_value)
+            blocked, (allowed, reason) = self._check_circuit_breaker_gated(trade_value, will_transmit)
             if blocked:
                 return blocked
 
@@ -310,7 +362,9 @@ class IBKRMCPServer:
                     stop_loss=stop_loss,
                     sec_type=sec_type,
                     exchange=exchange,
+                    confirm=confirm,
                 )
+                result = self._with_risk_gate(result, allowed, reason)
                 return {
                     "success": True,
                     "data": result,
@@ -473,12 +527,18 @@ class IBKRMCPServer:
             strategy_type: str = "Marketable",
             sec_type: str = "STK",
             exchange: str = "SMART",
+            confirm: bool = False,
         ) -> Dict[str, Any]:
-            """Place a TWAP (Time-Weighted Average Price) algorithmic order."""
+            """Place a TWAP (Time-Weighted Average Price) algorithmic order.
+
+            Approval-required by default; re-call with confirm=True to transmit,
+            or set IBKR_MCP_AUTONOMOUS_EXECUTION=true to skip approval.
+            """
             if self.config.ibkr.readonly:
                 return {"success": False, "error": "Read-only mode - trading disabled"}
 
-            blocked = self._check_circuit_breaker(0.0)
+            will_transmit = self._will_transmit(confirm)
+            blocked, (allowed, reason) = self._check_circuit_breaker_gated(0.0, will_transmit)
             if blocked:
                 return blocked
 
@@ -502,7 +562,9 @@ class IBKRMCPServer:
                     algo_params=algo_params,
                     sec_type=sec_type,
                     exchange=exchange,
+                    confirm=confirm,
                 )
+                result = self._with_risk_gate(result, allowed, reason)
 
                 return {
                     "success": True,
@@ -524,12 +586,18 @@ class IBKRMCPServer:
             no_take_liq: bool = False,
             sec_type: str = "STK",
             exchange: str = "SMART",
+            confirm: bool = False,
         ) -> Dict[str, Any]:
-            """Place a VWAP (Volume-Weighted Average Price) algorithmic order."""
+            """Place a VWAP (Volume-Weighted Average Price) algorithmic order.
+
+            Approval-required by default; re-call with confirm=True to transmit,
+            or set IBKR_MCP_AUTONOMOUS_EXECUTION=true to skip approval.
+            """
             if self.config.ibkr.readonly:
                 return {"success": False, "error": "Read-only mode - trading disabled"}
 
-            blocked = self._check_circuit_breaker(0.0)
+            will_transmit = self._will_transmit(confirm)
+            blocked, (allowed, reason) = self._check_circuit_breaker_gated(0.0, will_transmit)
             if blocked:
                 return blocked
 
@@ -554,7 +622,9 @@ class IBKRMCPServer:
                     algo_params=algo_params,
                     sec_type=sec_type,
                     exchange=exchange,
+                    confirm=confirm,
                 )
+                result = self._with_risk_gate(result, allowed, reason)
 
                 return {
                     "success": True,
@@ -577,12 +647,18 @@ class IBKRMCPServer:
             force_completion: bool = False,
             sec_type: str = "STK",
             exchange: str = "SMART",
+            confirm: bool = False,
         ) -> Dict[str, Any]:
-            """Place an Arrival Price algorithmic order."""
+            """Place an Arrival Price algorithmic order.
+
+            Approval-required by default; re-call with confirm=True to transmit,
+            or set IBKR_MCP_AUTONOMOUS_EXECUTION=true to skip approval.
+            """
             if self.config.ibkr.readonly:
                 return {"success": False, "error": "Read-only mode - trading disabled"}
 
-            blocked = self._check_circuit_breaker(0.0)
+            will_transmit = self._will_transmit(confirm)
+            blocked, (allowed, reason) = self._check_circuit_breaker_gated(0.0, will_transmit)
             if blocked:
                 return blocked
 
@@ -608,7 +684,9 @@ class IBKRMCPServer:
                     algo_params=algo_params,
                     sec_type=sec_type,
                     exchange=exchange,
+                    confirm=confirm,
                 )
+                result = self._with_risk_gate(result, allowed, reason)
 
                 return {
                     "success": True,
@@ -627,12 +705,18 @@ class IBKRMCPServer:
             priority: str = "Normal",
             sec_type: str = "STK",
             exchange: str = "SMART",
+            confirm: bool = False,
         ) -> Dict[str, Any]:
-            """Place an IB Adaptive algorithmic order."""
+            """Place an IB Adaptive algorithmic order.
+
+            Approval-required by default; re-call with confirm=True to transmit,
+            or set IBKR_MCP_AUTONOMOUS_EXECUTION=true to skip approval.
+            """
             if self.config.ibkr.readonly:
                 return {"success": False, "error": "Read-only mode - trading disabled"}
 
-            blocked = self._check_circuit_breaker(0.0)
+            will_transmit = self._will_transmit(confirm)
+            blocked, (allowed, reason) = self._check_circuit_breaker_gated(0.0, will_transmit)
             if blocked:
                 return blocked
 
@@ -652,7 +736,9 @@ class IBKRMCPServer:
                     algo_params=algo_params,
                     sec_type=sec_type,
                     exchange=exchange,
+                    confirm=confirm,
                 )
+                result = self._with_risk_gate(result, allowed, reason)
 
                 return {
                     "success": True,
@@ -845,12 +931,18 @@ class IBKRMCPServer:
             trail_percent: Optional[float] = None,
             sec_type: str = "STK",
             exchange: str = "SMART",
+            confirm: bool = False,
         ) -> Dict[str, Any]:
-            """Place a trailing stop order."""
+            """Place a trailing stop order.
+
+            Approval-required by default; re-call with confirm=True to transmit,
+            or set IBKR_MCP_AUTONOMOUS_EXECUTION=true to skip approval.
+            """
             if self.config.ibkr.readonly:
                 return {"success": False, "error": "Read-only mode - trading disabled"}
 
-            blocked = self._check_circuit_breaker(0.0)
+            will_transmit = self._will_transmit(confirm)
+            blocked, (allowed, reason) = self._check_circuit_breaker_gated(0.0, will_transmit)
             if blocked:
                 return blocked
 
@@ -863,7 +955,9 @@ class IBKRMCPServer:
                     trail_percent=trail_percent,
                     sec_type=sec_type,
                     exchange=exchange,
+                    confirm=confirm,
                 )
+                result = self._with_risk_gate(result, allowed, reason)
                 return {
                     "success": True,
                     "data": result,
@@ -878,12 +972,18 @@ class IBKRMCPServer:
             orders: List[Dict[str, Any]],
             oca_group: str,
             oca_type: int = 1,
+            confirm: bool = False,
         ) -> Dict[str, Any]:
-            """Place One-Cancels-All (OCA) order group."""
+            """Place One-Cancels-All (OCA) order group.
+
+            Approval-required by default; re-call with confirm=True to transmit,
+            or set IBKR_MCP_AUTONOMOUS_EXECUTION=true to skip approval.
+            """
             if self.config.ibkr.readonly:
                 return {"success": False, "error": "Read-only mode - trading disabled"}
 
-            blocked = self._check_circuit_breaker(0.0)
+            will_transmit = self._will_transmit(confirm)
+            blocked, (allowed, reason) = self._check_circuit_breaker_gated(0.0, will_transmit)
             if blocked:
                 return blocked
 
@@ -892,7 +992,9 @@ class IBKRMCPServer:
                     orders=orders,
                     oca_group=oca_group,
                     oca_type=oca_type,
+                    confirm=confirm,
                 )
+                result = self._with_risk_gate(result, allowed, reason)
                 return {
                     "success": True,
                     "data": result,
@@ -911,12 +1013,18 @@ class IBKRMCPServer:
             algo_params: Dict[str, str],
             sec_type: str = "STK",
             exchange: str = "SMART",
+            confirm: bool = False,
         ) -> Dict[str, Any]:
-            """Place an algorithmic order using IBKR's algo strategies."""
+            """Place an algorithmic order using IBKR's algo strategies.
+
+            Approval-required by default; re-call with confirm=True to transmit,
+            or set IBKR_MCP_AUTONOMOUS_EXECUTION=true to skip approval.
+            """
             if self.config.ibkr.readonly:
                 return {"success": False, "error": "Read-only mode - trading disabled"}
 
-            blocked = self._check_circuit_breaker(0.0)
+            will_transmit = self._will_transmit(confirm)
+            blocked, (allowed, reason) = self._check_circuit_breaker_gated(0.0, will_transmit)
             if blocked:
                 return blocked
 
@@ -929,7 +1037,9 @@ class IBKRMCPServer:
                     algo_params=algo_params,
                     sec_type=sec_type,
                     exchange=exchange,
+                    confirm=confirm,
                 )
+                result = self._with_risk_gate(result, allowed, reason)
                 return {
                     "success": True,
                     "data": result,
