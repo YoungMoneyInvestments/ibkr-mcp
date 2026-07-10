@@ -50,9 +50,9 @@ dev = [
 ibkr-mcp = "ibkr_mcp.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/cameronbennion/ibkr-mcp"
-Repository = "https://github.com/cameronbennion/ibkr-mcp"
-Issues = "https://github.com/cameronbennion/ibkr-mcp/issues"
+Homepage = "https://github.com/YoungMoneyInvestments/ibkr-mcp"
+Repository = "https://github.com/YoungMoneyInvestments/ibkr-mcp"
+Issues = "https://github.com/YoungMoneyInvestments/ibkr-mcp/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ibkr_mcp"]

@@ -1,14 +1,43 @@
 # IBKR MCP Server
 
-Full-featured Interactive Brokers MCP (Model Context Protocol) server for AI assistants like Claude.
+**A self-hosted, institutional-grade risk engine for Interactive Brokers — with a full trading, market-data, and execution stack wired behind it.**
+
+You run this against your own IB Gateway, on your own account, under your own control. Every order it can place — market, limit, bracket, OCA, trailing stop, TWAP/VWAP/DarkIce/Adaptive algos — fires *through* a real risk layer first: parametric and historical Value-at-Risk, Kelly and volatility-based position sizing, margin/concentration/buying-power limits, and an automatic loss circuit-breaker that halts trading when you cross a drawdown threshold. Exposing IBKR to an AI assistant is the table stakes. The risk stack is the product.
+
+## Why this vs IBKR's official MCP / the free clones
+
+IBKR now ships a free official MCP server, and there are 10+ open-source IBKR MCP clones. They connect an LLM to your account and let it read data and route orders. That's it. **None of them ship the risk layer** — no VaR, no Kelly/vol sizing engine, no enforced margin/concentration limits, no automatic loss circuit-breaker. The most complete OSS clone stops at option Greeks and a concentration check.
+
+| | Official IBKR MCP / OSS clones | This server |
+|---|---|---|
+| Connect an LLM to IBKR | ✅ | ✅ |
+| Market data, orders, options, futures, scanners | ✅ | ✅ |
+| Bracket / OCA / trailing / TWAP / VWAP / DarkIce algos | partial | ✅ |
+| Parametric + historical VaR | ❌ | ✅ |
+| Kelly / volatility position sizing | ❌ | ✅ |
+| Enforced margin / concentration / buying-power limits | ❌ | ✅ |
+| Automatic loss circuit-breaker (halts trading) | ❌ | ✅ |
+| Self-hosted on your own Gateway + account | — | ✅ |
+
+If all you need is "an LLM that can see my IBKR account," use the free official one. This exists for quant prosumers and small funds who want the AI to trade *inside* hard risk rails they define.
+
+## Safety model — you own the risk
+
+This is a tool you **self-host and run against your own account and your own IB Gateway**. There is no hosted service in the middle touching accounts you don't own, and there is no third party taking custody of anything.
+
+- **Default posture is approval-required.** Out of the box, the assistant proposes orders; a human confirms before anything routes.
+- **Fully-autonomous (no-human-click) execution is an explicit opt-in** that *you* enable, on *your* account, on *your* Gateway. It is off until you turn it on.
+- **The risk gates are always in the path** regardless of mode — approval-required or autonomous, orders still pass through VaR, sizing, limit, and circuit-breaker checks before reaching the broker.
+
+This is deliberately different from IBKR's liability-driven mandatory-approval design: you decide how much autonomy to grant, because you're the one holding the account and the risk.
 
 ## Features
 
-### Account & Portfolio
-- **Account Summary** - Balances, buying power, margin status
-- **Positions** - Current holdings with P&L
-- **Portfolio Analysis** - Allocation by asset class, symbol, currency
-- **Rebalancing** - Calculate and execute rebalancing trades
+### Risk Management
+- **Value at Risk** - Parametric and historical VaR
+- **Position Sizing** - Fixed risk, Kelly criterion, volatility-based
+- **Risk Limits** - Margin utilization, concentration, buying power checks
+- **Circuit Breaker** - Automatic trading halt on excessive losses
 
 ### Trading
 - **Basic Orders** - Market, limit, stop orders
@@ -16,6 +45,12 @@ Full-featured Interactive Brokers MCP (Model Context Protocol) server for AI ass
 - **Trailing Stops** - By amount or percentage
 - **OCA Orders** - One-Cancels-All order groups
 - **Algo Orders** - TWAP, VWAP, Arrival Price, DarkIce, Adaptive, and more
+
+### Account & Portfolio
+- **Account Summary** - Balances, buying power, margin status
+- **Positions** - Current holdings with P&L
+- **Portfolio Analysis** - Allocation by asset class, symbol, currency
+- **Rebalancing** - Calculate and execute rebalancing trades
 
 ### Market Data
 - **Real-time Prices** - Live quotes with fast failover
@@ -38,23 +73,16 @@ Full-featured Interactive Brokers MCP (Model Context Protocol) server for AI ass
 - **Custom Scanners** - Build your own with filters
 - **Options Volume** - Unusual options activity
 
-### Risk Management
-- **Position Sizing** - Fixed risk, Kelly criterion, volatility-based
-- **Risk Limits** - Margin utilization, concentration, buying power checks
-- **Value at Risk** - Parametric and historical VaR
-- **Circuit Breaker** - Automatic trading halt on excessive losses
-
 ## Installation
 
 ```bash
-# From PyPI (recommended)
-pip install ibkr-mcp
-
-# From source
-git clone https://github.com/cameronbennion/ibkr-mcp.git
+# From source (this is a private, proprietary repo — not published to PyPI)
+git clone git@github.com:YoungMoneyInvestments/ibkr-mcp.git
 cd ibkr-mcp
 pip install -e .
 ```
+
+> Note: an unrelated `ibkr-mcp` package exists on public PyPI — it is NOT this project. Install from source only.
 
 ## Prerequisites
 
@@ -251,7 +279,7 @@ ruff check src
 
 ## License
 
-MIT License - see [LICENSE](LICENSE)
+Proprietary — Copyright (c) 2026 Cameron Bennion. All Rights Reserved. See [LICENSE](LICENSE).
 
 ## Disclaimer
 
