@@ -375,8 +375,9 @@ async def execute_rebalancing(
     ib_client: Any,
     rebalancing_plan: Dict[str, Any],
     place_order_func: Any,
-    order_type: str = "MARKET",
-    execute_sells_first: bool = True
+    order_type: str = "MKT",
+    execute_sells_first: bool = True,
+    confirm: bool = False,
 ) -> Dict[str, Any]:
     """
     Execute the rebalancing trades from a rebalancing plan.
@@ -385,13 +386,26 @@ async def execute_rebalancing(
         ib_client: Connected IB client instance
         rebalancing_plan: Output from calculate_rebalancing_orders
         place_order_func: Function to place orders (async callable)
-        order_type: MARKET or LIMIT
+        order_type: Order type — MKT, LMT, or STP (human aliases MARKET/LIMIT/STOP accepted)
         execute_sells_first: Execute sells before buys to raise cash
+        confirm: Must be True to actually transmit the batch of rebalancing
+            orders to IBKR, unless ib_client.config.autonomous_execution is
+            enabled. Defaults to False: the same confirm value is threaded
+            into every underlying place_order_func call, so the batch is
+            always entirely staged as a PENDING_APPROVAL preview or entirely
+            transmitted -- never a partial mix.
 
     Returns:
-        Dict with success, data (list of trade results), and timestamp
+        Dict with success, data (list of trade results), and timestamp. When
+        approval is required and not yet confirmed, data contains the list
+        of orders that would be placed instead of live order results.
     """
     try:
+        # Normalize human-friendly order-type aliases to the codes place_order expects (MKT/LMT/STP)
+        order_type = {"MARKET": "MKT", "LIMIT": "LMT", "STOP": "STP"}.get(
+            order_type.upper(), order_type.upper()
+        )
+
         # Validate the rebalancing plan
         if not rebalancing_plan.get("success"):
             return {
@@ -418,90 +432,94 @@ async def execute_rebalancing(
         sells = [t for t in trades if t["action"] == "SELL"]
         buys = [t for t in trades if t["action"] == "BUY"]
 
-        # Execute sells first if requested
-        if execute_sells_first:
-            for trade in sells:
-                try:
-                    result = await place_order_func(
-                        symbol=trade["symbol"],
-                        action=trade["action"],
-                        quantity=trade["quantity"],
-                        order_type=order_type
-                    )
-                    results.append({
-                        "symbol": trade["symbol"],
-                        "action": trade["action"],
-                        "quantity": trade["quantity"],
-                        "status": "submitted",
-                        "order_id": result.get("order_id")
-                    })
-                except Exception as e:
-                    results.append({
-                        "symbol": trade["symbol"],
-                        "action": trade["action"],
-                        "quantity": trade["quantity"],
-                        "status": "failed",
-                        "error": str(e)
-                    })
+        # Approval gate: default posture is approval-required. `confirm` is
+        # threaded into every place_order_func call below, so the underlying
+        # order gate (see tools.orders.place_order) decides per-order -- and
+        # since every call gets the same confirm value, the batch can never
+        # end up partially transmitted and partially staged.
+        will_transmit = confirm or bool(
+            getattr(getattr(ib_client, "config", None), "autonomous_execution", False)
+        )
 
-            # Wait for sells to complete if needed
-            if sells:
-                await asyncio.sleep(2)
-
-        # Execute buys
-        for trade in buys:
+        async def _execute_trade(trade: Dict[str, Any]) -> Dict[str, Any]:
             try:
                 result = await place_order_func(
                     symbol=trade["symbol"],
                     action=trade["action"],
                     quantity=trade["quantity"],
-                    order_type=order_type
+                    order_type=order_type,
+                    confirm=confirm,
                 )
-                results.append({
+                entry = {
                     "symbol": trade["symbol"],
                     "action": trade["action"],
                     "quantity": trade["quantity"],
-                    "status": "submitted",
-                    "order_id": result.get("order_id")
-                })
+                }
+                if isinstance(result, dict) and result.get("pending_approval"):
+                    entry["status"] = "PENDING_APPROVAL"
+                    entry["would_place"] = result.get("would_place")
+                    if "risk_gate" in result:
+                        entry["risk_gate"] = result["risk_gate"]
+                else:
+                    entry["status"] = "submitted"
+                    entry["order_id"] = (
+                        result.get("order_id") if isinstance(result, dict) else None
+                    )
+                return entry
             except Exception as e:
-                results.append({
+                return {
                     "symbol": trade["symbol"],
                     "action": trade["action"],
                     "quantity": trade["quantity"],
                     "status": "failed",
-                    "error": str(e)
-                })
+                    "error": str(e),
+                }
+
+        # Execute sells first if requested
+        if execute_sells_first:
+            for trade in sells:
+                results.append(await _execute_trade(trade))
+
+            # Wait for sells to complete if needed -- only meaningful when
+            # the batch is actually transmitting to IBKR.
+            if sells and will_transmit:
+                await asyncio.sleep(2)
+
+        # Execute buys
+        for trade in buys:
+            results.append(await _execute_trade(trade))
 
         # Execute remaining sells if not done first
         if not execute_sells_first:
             for trade in sells:
-                try:
-                    result = await place_order_func(
-                        symbol=trade["symbol"],
-                        action=trade["action"],
-                        quantity=trade["quantity"],
-                        order_type=order_type
-                    )
-                    results.append({
-                        "symbol": trade["symbol"],
-                        "action": trade["action"],
-                        "quantity": trade["quantity"],
-                        "status": "submitted",
-                        "order_id": result.get("order_id")
-                    })
-                except Exception as e:
-                    results.append({
-                        "symbol": trade["symbol"],
-                        "action": trade["action"],
-                        "quantity": trade["quantity"],
-                        "status": "failed",
-                        "error": str(e)
-                    })
+                results.append(await _execute_trade(trade))
 
         # Count successes and failures
         successful = sum(1 for r in results if r["status"] == "submitted")
         failed = sum(1 for r in results if r["status"] == "failed")
+        pending = sum(1 for r in results if r["status"] == "PENDING_APPROVAL")
+
+        if not will_transmit:
+            return {
+                'success': True,
+                'status': 'PENDING_APPROVAL',
+                'pending_approval': True,
+                'data': {
+                    "results": results,
+                    "summary": {
+                        "total_trades": len(results),
+                        "pending_approval": pending,
+                        "failed": failed,
+                    }
+                },
+                'message': (
+                    "Approval required before this rebalancing batch is transmitted "
+                    "to IBKR. Re-call execute_rebalancing with confirm=True to submit "
+                    "all orders in the batch, or set IBKR_MCP_AUTONOMOUS_EXECUTION=true "
+                    "to enable autonomous execution."
+                ),
+                'timestamp': datetime.now().isoformat()
+            }
 
         return {
             'success': True,

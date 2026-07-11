@@ -272,7 +272,8 @@ async def check_risk_limits(client: Any) -> Dict[str, Any]:
 async def set_stop_loss_orders(
     client: Any,
     trail_percent: Optional[float] = None,
-    trail_amount: Optional[float] = None
+    trail_amount: Optional[float] = None,
+    confirm: bool = False,
 ) -> Dict[str, Any]:
     """
     Automatically set stop loss orders for all positions.
@@ -281,17 +282,31 @@ async def set_stop_loss_orders(
         client: IBKRClient instance
         trail_percent: Trailing stop percentage (e.g., 5 for 5%)
         trail_amount: Trailing stop dollar amount
+        confirm: Must be True to actually transmit the batch of trailing
+            stops to IBKR, unless client.config.autonomous_execution is
+            enabled. Defaults to False: the same confirm value is threaded
+            into every underlying client.place_trailing_stop call, so the
+            batch is always entirely staged as a PENDING_APPROVAL preview or
+            entirely transmitted -- never a partial mix.
 
     Returns:
         Dictionary containing:
             - success: Boolean status
-            - orders_placed: List of orders placed
+            - orders_placed: List of orders placed (or previewed)
             - total_positions_protected: Count of positions protected
             - timestamp: Execution timestamp
+        When approval is required and not yet confirmed, the response also
+        includes status="PENDING_APPROVAL" and pending_approval=True, and
+        each entry in orders_placed describes the would-be order instead of
+        a live one.
     """
     try:
         positions = client.ib.positions()
         orders_placed = []
+
+        will_transmit = confirm or bool(
+            getattr(getattr(client, "config", None), "autonomous_execution", False)
+        )
 
         for position in positions:
             if position.position == 0:
@@ -320,7 +335,8 @@ async def set_stop_loss_orders(
                         quantity=quantity,
                         trail_percent=trail_percent,
                         sec_type=contract.secType,
-                        exchange=contract.exchange
+                        exchange=contract.exchange,
+                        confirm=confirm,
                     )
                 elif trail_amount:
                     result = await client.place_trailing_stop(
@@ -329,7 +345,8 @@ async def set_stop_loss_orders(
                         quantity=quantity,
                         trail_amount=trail_amount,
                         sec_type=contract.secType,
-                        exchange=contract.exchange
+                        exchange=contract.exchange,
+                        confirm=confirm,
                     )
                 else:
                     # Default 2% trailing stop
@@ -339,16 +356,46 @@ async def set_stop_loss_orders(
                         quantity=quantity,
                         trail_percent=2.0,
                         sec_type=contract.secType,
-                        exchange=contract.exchange
+                        exchange=contract.exchange,
+                        confirm=confirm,
                     )
 
-                orders_placed.append({
+                entry = {
                     "symbol": contract.symbol,
                     "quantity": quantity,
                     "action": action,
-                    "order_id": result.get("order_id"),
-                    "status": result.get("status")
-                })
+                }
+                if isinstance(result, dict) and result.get("pending_approval"):
+                    entry["status"] = "PENDING_APPROVAL"
+                    entry["would_place"] = result.get("would_place")
+                    if "risk_gate" in result:
+                        entry["risk_gate"] = result["risk_gate"]
+                else:
+                    entry["order_id"] = (
+                        result.get("order_id") if isinstance(result, dict) else None
+                    )
+                    entry["status"] = (
+                        result.get("status") if isinstance(result, dict) else None
+                    )
+
+                orders_placed.append(entry)
+
+        if not will_transmit:
+            return {
+                "success": True,
+                "status": "PENDING_APPROVAL",
+                "pending_approval": True,
+                "orders_placed": orders_placed,
+                "total_positions_protected": len(orders_placed),
+                "message": (
+                    "Approval required before these trailing stop orders are "
+                    "transmitted to IBKR. Re-call set_stop_loss_orders with "
+                    "confirm=True to submit all of them, or set "
+                    "IBKR_MCP_AUTONOMOUS_EXECUTION=true to enable autonomous "
+                    "execution."
+                ),
+                "timestamp": datetime.now().isoformat()
+            }
 
         return {
             "success": True,

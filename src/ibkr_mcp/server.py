@@ -839,14 +839,22 @@ class IBKRMCPServer:
         @self.mcp.tool()
         async def execute_rebalancing(
             rebalancing_plan: Dict[str, Any],
-            order_type: str = "MARKET",
+            order_type: str = "MKT",
             execute_sells_first: bool = True,
+            confirm: bool = False,
         ) -> Dict[str, Any]:
-            """Execute rebalancing trades from a rebalancing plan."""
+            """Execute rebalancing trades from a rebalancing plan.
+
+            Approval-required by default; re-call with confirm=True to transmit
+            the full batch of rebalancing orders, or set
+            IBKR_MCP_AUTONOMOUS_EXECUTION=true to skip approval. The batch is
+            always all-preview or all-execute -- never a partial mix.
+            """
             if self.config.ibkr.readonly:
                 return {"success": False, "error": "Read-only mode - trading disabled"}
 
-            blocked = self._check_circuit_breaker(0.0)
+            will_transmit = self._will_transmit(confirm)
+            blocked, (allowed, reason) = self._check_circuit_breaker_gated(0.0, will_transmit)
             if blocked:
                 return blocked
 
@@ -855,7 +863,9 @@ class IBKRMCPServer:
                     rebalancing_plan=rebalancing_plan,
                     order_type=order_type,
                     execute_sells_first=execute_sells_first,
+                    confirm=confirm,
                 )
+                result = self._with_risk_gate(result, allowed, reason)
                 return {
                     "success": True,
                     "data": result,
@@ -1115,12 +1125,20 @@ class IBKRMCPServer:
         async def set_stop_loss_orders(
             trail_percent: Optional[float] = None,
             trail_amount: Optional[float] = None,
+            confirm: bool = False,
         ) -> Dict[str, Any]:
-            """Automatically set stop loss orders for all positions."""
+            """Automatically set stop loss orders for all positions.
+
+            Approval-required by default; re-call with confirm=True to transmit
+            the full batch of trailing stops, or set
+            IBKR_MCP_AUTONOMOUS_EXECUTION=true to skip approval. The batch is
+            always all-preview or all-execute -- never a partial mix.
+            """
             if self.config.ibkr.readonly:
                 return {"success": False, "error": "Read-only mode - trading disabled"}
 
-            blocked = self._check_circuit_breaker(0.0)
+            will_transmit = self._will_transmit(confirm)
+            blocked, (allowed, reason) = self._check_circuit_breaker_gated(0.0, will_transmit)
             if blocked:
                 return blocked
 
@@ -1128,7 +1146,9 @@ class IBKRMCPServer:
                 result = await self.client.set_stop_loss_orders(
                     trail_percent=trail_percent,
                     trail_amount=trail_amount,
+                    confirm=confirm,
                 )
+                result = self._with_risk_gate(result, allowed, reason)
                 return {
                     "success": True,
                     "data": result,

@@ -1171,12 +1171,18 @@ class IBKRClient:
         rebalancing_plan: Dict[str, Any],
         order_type: str = "MARKET",
         execute_sells_first: bool = True,
+        confirm: bool = False,
     ) -> Dict[str, Any]:
-        """Execute portfolio rebalancing orders."""
+        """Execute portfolio rebalancing orders.
+
+        confirm: Must be True to transmit the batch, unless
+            config.autonomous_execution is enabled. Defaults to False
+            (approval required for every order in the batch).
+        """
         from .tools import account
         return await account.execute_rebalancing(
             self, rebalancing_plan, self.place_order,
-            order_type, execute_sells_first
+            order_type, execute_sells_first, confirm
         )
 
     # --- Advanced Order Methods ---
@@ -1372,7 +1378,15 @@ class IBKRClient:
         self,
         trail_percent: Optional[float] = None,
         trail_amount: Optional[float] = None,
+        confirm: bool = False,
     ) -> Dict[str, Any]:
-        """Set stop loss orders for all positions."""
+        """Set stop loss orders for all positions.
+
+        confirm: Must be True to transmit the batch, unless
+            config.autonomous_execution is enabled. Defaults to False
+            (approval required for every trailing stop in the batch).
+        """
         from .tools import risk
-        return await risk.set_stop_loss_orders(self, trail_percent, trail_amount)
+        return await risk.set_stop_loss_orders(
+            self, trail_percent, trail_amount, confirm
+        )
