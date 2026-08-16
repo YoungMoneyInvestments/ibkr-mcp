@@ -33,7 +33,6 @@ class IBKRMCPServer:
         self.mcp = FastMCP(
             "IBKR MCP Server",
             version="1.0.0",
-            description="Full-featured Interactive Brokers integration for AI assistants",
         )
         self._setup_tools()
 
